@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package aegisflow.v1;
+
+// 决策
+enum DecisionAction {
+    // 未知决策，默认
+    DECISION_ACTION_UNKOWN = 0;
+    // 通过
+    PASS = 1;
+    // 人工审查
+    REVIEW = 2;
+    // 拒绝
+    REJECT = 3;
+}
+
+message RiskReason {
+    // 风险代码
+    string code = 1;
+    // 风险原因
+    string message = 2;
+    // 严重程度
+    int32 severity = 3;
+}
+
+message Decision {
+    uint64 event_id = 1;
+    string user_id = 2;
+    DecisionAction action = 3;
+    int32 risk_score = 4;
+    repeated RiskReason reasons = 5;
+    uint64 cost_us = 6;
+}
+
+message ReportEventResponse {
+    Decision decision = 1;
+}
+
+message BatchReportResponse {
+    repeated Decision decisions = 1;
+}
