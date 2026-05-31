@@ -16,13 +16,16 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 
 add_executable(AegisFlow 
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/log/logger.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/config/config.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
 
 target_include_directories(AegisFlow PRIVATE 
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/log
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/config
 )
 
 target_link_libraries(AegisFlow PRIVATE
