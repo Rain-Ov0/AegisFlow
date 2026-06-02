@@ -4,6 +4,8 @@
 #include <mutex>
 #include <fstream>
 
+namespace aegisflow::log {
+
 enum class LogLevel {
     DEBUG,
     INFO,
@@ -17,6 +19,7 @@ public:
 
     void init(LogLevel level, const std::string& file);
     void log(LogLevel level, const std::string& msg);
+    LogLevel stringToLogLevel(const std::string& level) const;
 
 private:
     Logger() = default;
@@ -30,6 +33,8 @@ private:
     LogLevel level_ = LogLevel::INFO;
 };
 
-#define LOG_INFO(msg) Logger::instance().log(LogLevel::INFO, msg)
-#define LOG_WARN(msg) Logger::instance().log(LogLevel::WARN, msg)
-#define LOG_ERROR(msg) Logger::instance().log(LogLevel::ERROR, msg)
+#define LOG_INFO(msg) aegisflow::log::Logger::instance().log(aegisflow::log::LogLevel::INFO, msg)
+#define LOG_WARN(msg) aegisflow::log::Logger::instance().log(aegisflow::log::LogLevel::WARN, msg)
+#define LOG_ERROR(msg) aegisflow::log::Logger::instance().log(aegisflow::log::LogLevel::ERROR, msg)
+
+} //namespace aegisflow::log

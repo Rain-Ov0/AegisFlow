@@ -1,4 +1,5 @@
-#include "config.hpp"
+#include "aegisflow/config/config.hpp"
+#include "aegisflow/log/logger.hpp"
 
 #include <algorithm>
 #include <string>
@@ -6,6 +7,8 @@
 #include <iostream>
 #include <exception>
 #include <cstdint>
+
+namespace aegisflow::config {
 
 namespace {
     // 去除字符串首尾空格
@@ -113,3 +116,5 @@ uint64_t Config::getUInt64(const std::string& key, const uint64_t defaultValue) 
         return defaultValue;
     }
 }
+
+} //namespace aegisflow::config

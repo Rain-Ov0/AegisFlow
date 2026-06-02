@@ -18,14 +18,15 @@ add_executable(AegisFlow
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/log/logger.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/config/config.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/net/http_server.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/risk_service.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
 
 target_include_directories(AegisFlow PRIVATE 
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/log
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/config
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/
 )
 
 target_link_libraries(AegisFlow PRIVATE

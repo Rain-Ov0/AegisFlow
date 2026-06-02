@@ -1,4 +1,4 @@
-#include "logger.hpp"
+#include "aegisflow/log/logger.hpp"
 
 #include <string>
 #include <chrono>
@@ -8,6 +8,8 @@
 #include <iostream>
 #include <fstream>
 #include <mutex>
+
+namespace aegisflow::log {
 
 namespace {
     // 日志级别转换为字符串
@@ -86,3 +88,19 @@ void Logger::log(LogLevel level, const std::string& msg) {
         std::cerr << oss.str() << std::endl;
     }
 }
+
+LogLevel Logger::stringToLogLevel(const std::string& level) const {
+    if (level == "DEBUG") {
+        return LogLevel::DEBUG;
+    } else if (level == "INFO") {
+        return LogLevel::INFO;
+    } else if (level == "WARN") {
+        return LogLevel::WARN;
+    } else if (level == "ERROR") {
+        return LogLevel::ERROR;
+    }
+    return LogLevel::INFO;
+}
+
+
+} //namespace aegisflow::log

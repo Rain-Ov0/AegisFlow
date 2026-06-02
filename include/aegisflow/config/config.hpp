@@ -1,8 +1,11 @@
 #pragma once 
 
+#include "aegisflow/log/logger.hpp"
 #include <string>
 #include <unordered_map>
 #include <cstdint>
+
+namespace aegisflow::config {
 
 class Config {
 public:
@@ -14,3 +17,5 @@ public:
 private:
     std::unordered_map<std::string, std::string> values_;
 };
+
+} //namespace aegisflow::config
