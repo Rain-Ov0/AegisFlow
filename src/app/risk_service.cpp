@@ -2,6 +2,7 @@
 
 namespace aegisflow::app {
 
+// 处理事件
 aegisflow::v1::ReportEventResponse RiskService::handleEvent(
     const aegisflow::v1::ReportEventRequest& request
 ) {

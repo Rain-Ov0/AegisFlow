@@ -19,6 +19,7 @@ namespace {
     using StringRequest = http::request<http::string_body>;
     using StringResponse = http::response<http::string_body>;
 
+    // 构造200 ok 响应
     StringResponse makeHealthResponse(
         const StringRequest& request
     ) {
@@ -36,6 +37,7 @@ namespace {
         return response;
     }
 
+    // 构造404 not found 响应
     StringResponse makeNotFoundResponse(
         const StringRequest& request
     ) {
@@ -53,6 +55,7 @@ namespace {
     }
 } // namespace
 
+// 处理事件报告请求
 HttpServer::StringResponse HttpServer::handleReportEvent(
     const StringRequest& request
 ) {
@@ -63,6 +66,7 @@ HttpServer::StringResponse HttpServer::handleReportEvent(
         content_type.find("application/x-protobuf") != beast::string_view::npos || 
         content_type.find("application/octet-stream") != beast::string_view::npos;
 
+    // 检查内容类型是否为 protobuf
     if (!is_protobuf) {
         StringResponse response{
             http::status::unsupported_media_type,
@@ -75,11 +79,12 @@ HttpServer::StringResponse HttpServer::handleReportEvent(
         response.body() = R"({"error": "content-type must be application/x-protobuf"})";
         response.prepare_payload();
 
-        LOG_WARN("invaild content-type");
+        LOG_WARN("invalid content-type");
 
         return response;
     }
 
+    // 检查请求体大小是否超过最大限制 
     if (request.body().size() > max_body_size_) {
         StringResponse response{
             http::status::payload_too_large,
@@ -99,6 +104,7 @@ HttpServer::StringResponse HttpServer::handleReportEvent(
 
     aegisflow::v1::ReportEventRequest pb_request;
 
+    // 解析 protobuf 请求体
     if (!pb_request.ParseFromString(request.body())) {
         StringResponse response{
             http::status::bad_request,
@@ -135,6 +141,7 @@ HttpServer::StringResponse HttpServer::handleReportEvent(
 
     auto pb_response = risk_service_.handleEvent(pb_request);
     std::string response_body;
+    // 序列化 protobuf 响应体
     if (!pb_response.SerializeToString(&response_body)) {
         StringResponse response {
             http::status::internal_server_error,
@@ -152,13 +159,15 @@ HttpServer::StringResponse HttpServer::handleReportEvent(
         return response;
     }
 
+    // 构造200 ok 响应
+
     StringResponse response {
         http::status::ok,
         request.version()
     };
 
     response.set(http::field::server, "aegisflow");
-    response.set(http::field::content_type, "application/json");
+    response.set(http::field::content_type, "application/x-protobuf");
     response.keep_alive(request.keep_alive());
     response.body() = std::move(response_body);
     response.prepare_payload();
@@ -166,7 +175,7 @@ HttpServer::StringResponse HttpServer::handleReportEvent(
     const auto& decision = pb_response.decision();
     LOG_INFO("response decision action=" + 
     aegisflow::v1::DecisionAction_Name(decision.action()) + 
-    "event_id=" + 
+    " event_id=" + 
     std::to_string(decision.event_id())
      );
 
@@ -174,6 +183,7 @@ HttpServer::StringResponse HttpServer::handleReportEvent(
     return response;
 }
 
+// 处理请求
 HttpServer::StringResponse HttpServer::handleRequest(
     const StringRequest& request
 ) {
@@ -244,6 +254,7 @@ void HttpServer::run() {
     }
 }
 
+// 处理会话
 void HttpServer::doSession(TcpSocket socket) {
     beast::error_code ec;
     beast::flat_buffer buffer;

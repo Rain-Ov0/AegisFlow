@@ -34,6 +34,7 @@ namespace {
     }
 } //namespace
 
+// 从文件加载配置
 bool Config::loadFromFile(const std::string& path)
 {
     std::ifstream file(path);
@@ -76,11 +77,13 @@ bool Config::loadFromFile(const std::string& path)
     return true;
 }
 
+// 获取字符串配置值
 std::string Config::getString(const std::string& key, const std::string& defaultValue) const {
     auto it = values_.find(key);
     return it != values_.end() ? it->second : defaultValue;
 }
 
+// 获取32位整数配置值
 int Config::getInt(const std::string& key, const int defaultValue) const {
     auto it = values_.find(key);
     if (it == values_.end()) {
@@ -99,6 +102,7 @@ int Config::getInt(const std::string& key, const int defaultValue) const {
     }
 }
 
+// 获取无符号64位整数配置值
 uint64_t Config::getUInt64(const std::string& key, const uint64_t defaultValue) const {
     auto it = values_.find(key);
     if (it == values_.end()) {

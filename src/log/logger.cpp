@@ -53,6 +53,7 @@ Logger& Logger::instance() {
     return logger;
 }
 
+// 初始化日志记录器
 void Logger::init(LogLevel level, const std::string& file) {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -69,6 +70,7 @@ void Logger::init(LogLevel level, const std::string& file) {
     }
 }
 
+// 记录日志
 void Logger::log(LogLevel level, const std::string& msg) {
     if (level < level_) {
         return ;
@@ -89,6 +91,7 @@ void Logger::log(LogLevel level, const std::string& msg) {
     }
 }
 
+// 字符串转换为日志级别
 LogLevel Logger::stringToLogLevel(const std::string& level) const {
     if (level == "DEBUG") {
         return LogLevel::DEBUG;
