@@ -8,10 +8,15 @@
 #include "event.pb.h"
 #include "decision.pb.h"
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: AegisFlow <config_file>" << std::endl;
+        return 1;
+    }
+    
     std::cout << "Hello, AegisFlow!" << std::endl;
     aegisflow::config::Config config_;
-    if (!config_.loadFromFile("../config/server.conf")) {
+    if (!config_.loadFromFile(argv[1])) {
         std::cerr << "load config failed" << std::endl;
         return 1;
     }

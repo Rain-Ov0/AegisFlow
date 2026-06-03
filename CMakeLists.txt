@@ -32,3 +32,17 @@ target_include_directories(AegisFlow PRIVATE
 target_link_libraries(AegisFlow PRIVATE
     protobuf::libprotobuf
 )
+
+add_executable(send_event
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/send_event.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
+
+target_include_directories(send_event PRIVATE 
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+target_link_libraries(send_event PRIVATE
+    protobuf::libprotobuf
+)

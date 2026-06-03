@@ -3,4 +3,5 @@ mkdir build
 cd build
 cmake ..
 cmake --build .
-./AegisFlow
+cd ..
+# ./build/AegisFlow config/server.conf
