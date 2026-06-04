@@ -46,3 +46,14 @@ target_include_directories(send_event PRIVATE
 target_link_libraries(send_event PRIVATE
     protobuf::libprotobuf
 )
+
+enable_testing()
+
+add_executable(test_sliding_counter
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sliding_counter.cpp
+)
+target_include_directories(test_sliding_counter PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/
+)
+
+add_test(NAME test_sliding_counter COMMAND test_sliding_counter)
