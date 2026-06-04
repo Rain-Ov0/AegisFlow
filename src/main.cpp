@@ -8,6 +8,13 @@
 #include "event.pb.h"
 #include "decision.pb.h"
 
+// 服务器端启动
+/*
+1. 加载配置文件
+2. 初始化日志
+3. 初始化风险服务
+4. 启动HTTP服务器
+*/
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: AegisFlow <config_file>" << std::endl;
@@ -23,7 +30,7 @@ int main(int argc, char* argv[]) {
 
     aegisflow::log::Logger:: instance().init(
         aegisflow::log::Logger:: instance().stringToLogLevel(config_.getString("log.level", "INFO")),
-        config_.getString("log.file", "../logs/log0602.log")
+        config_.getString("log.file", "logs/log.log")
     );
 
     aegisflow::app::RiskService risk_service_;

@@ -42,6 +42,13 @@ static const char* actionToString(aegisflow::v1::DecisionAction action) {
 }
 
 // 客户端发送事件
+/*
+1. 构造事件请求体
+2. 序列化请求体
+3. 发送请求
+4. 解析响应体
+5. 打印响应结果
+*/
 int main(int argc, char* argv[]) {
     try {
         GOOGLE_PROTOBUF_VERIFY_VERSION;
