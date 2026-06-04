@@ -57,3 +57,20 @@ target_include_directories(test_sliding_counter PRIVATE
 )
 
 add_test(NAME test_sliding_counter COMMAND test_sliding_counter)
+
+add_executable(test_recent_action_window
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_recent_action_window.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
+
+target_include_directories(test_recent_action_window PRIVATE 
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/
+)
+
+target_link_libraries(test_recent_action_window PRIVATE
+    protobuf::libprotobuf
+)
+
+add_test(NAME test_recent_action_window COMMAND test_recent_action_window)
