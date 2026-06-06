@@ -74,3 +74,21 @@ target_link_libraries(test_recent_action_window PRIVATE
 )
 
 add_test(NAME test_recent_action_window COMMAND test_recent_action_window)
+
+
+add_executable(test_user_state
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_user_state.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
+
+target_include_directories(test_user_state PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/
+)
+
+target_link_libraries(test_user_state PRIVATE
+    protobuf::libprotobuf
+)
+
+add_test(NAME test_user_state COMMAND test_user_state)
