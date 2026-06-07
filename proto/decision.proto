@@ -23,6 +23,17 @@ message RiskReason {
     int32 severity = 3;
 }
 
+message FeatureSnapshot {
+    string user_id = 1;
+
+    uint32 user_login_1m = 2;
+    uint32 user_login_5m = 3;
+    uint32 user_login_1h = 4;
+    uint32 user_login_fail_5m = 5;
+
+    repeated string recent_actions = 6;
+}
+
 message Decision {
     uint64 event_id = 1;
     string user_id = 2;
@@ -30,6 +41,8 @@ message Decision {
     int32 risk_score = 4;
     repeated RiskReason reasons = 5;
     uint64 cost_us = 6;
+
+    FeatureSnapshot features = 7;
 }
 
 message ReportEventResponse {

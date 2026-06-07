@@ -153,6 +153,14 @@ int main(int argc, char* argv[]) {
             << "risk_score=" << decision.risk_score() << std::endl
             << "cost_us=" << decision.cost_us() 
             << std::endl;
+
+        const auto& features = decision.features();
+
+        std::cout << "features.user_login_1m=" << features.user_login_1m() << std::endl
+            << "features.user_login_5m=" << features.user_login_5m() << std::endl
+            << "features.user_login_1h=" << features.user_login_1h() << std::endl
+            << "features.user_login_fail_5m=" << features.user_login_fail_5m()
+            << std::endl;
         
         for (const auto& reason : decision.reasons()) {
             std::cout << "reason code=" << reason.code()
