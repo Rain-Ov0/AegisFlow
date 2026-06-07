@@ -2,6 +2,8 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <algorithm>
+#include <thread>
 
 namespace aegisflow::app {
 
@@ -48,7 +50,24 @@ void fillFeatureSnapshot(
     }
 }
 
+size_t normalizeWokerNum(size_t worker_num) {
+    if (worker_num != 0) {
+        return worker_num;
+    }
+
+    const unsigned int hardware_num = std::thread::hardware_concurrency();
+    if (hardware_num == 0) {
+        return 4;
+    }
+
+    return std::max<size_t>(2, hardware_num);
+}
+
 } //namespace
+
+RiskService::RiskService(size_t worker_num)
+    : feature_store_(),
+      worker_pool_(normalizeWokerNum(worker_num)) {}
 
 // 处理事件
 aegisflow::v1::ReportEventResponse RiskService::handleEvent(
@@ -62,7 +81,11 @@ aegisflow::v1::ReportEventResponse RiskService::handleEvent(
     const auto& event = request.event();
     auto* decision = response.mutable_decision();
 
-    const auto snapshot = feature_store_.updateAndGet(event, now_ms);
+    auto future = worker_pool_.submit([this, event, now_ms]() {
+        return feature_store_.updateAndGet(event, now_ms);
+    });
+
+    const auto snapshot = future.get();
 
     decision->set_event_id(event.event_id());
     decision->set_user_id(event.user_id());
