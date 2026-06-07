@@ -49,48 +49,42 @@ target_link_libraries(send_event PRIVATE
     protobuf::libprotobuf
 )
 
-# enable_testing()
+enable_testing()
 
-# add_executable(test_sliding_counter
-#     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sliding_counter.cpp
-# )
-# target_include_directories(test_sliding_counter PRIVATE 
-#     ${CMAKE_CURRENT_SOURCE_DIR}/include/
-# )
+function(add_aegisflow_test target)
+    add_executable(${target} ${ARGN})
 
-# add_test(NAME test_sliding_counter COMMAND test_sliding_counter)
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/
+    )
 
-# add_executable(test_recent_action_window
-#     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_recent_action_window.cpp
-#     ${PROTO_SRCS}
-#     ${PROTO_HDRS}
-# )
+    target_link_libraries(${target} PRIVATE
+        protobuf::libprotobuf
+    )
 
-# target_include_directories(test_recent_action_window PRIVATE 
-#     ${CMAKE_CURRENT_BINARY_DIR}
-#     ${CMAKE_CURRENT_SOURCE_DIR}/include/
-# )
+    add_test(NAME ${target} COMMAND ${target})
+endfunction()
 
-# target_link_libraries(test_recent_action_window PRIVATE
-#     protobuf::libprotobuf
-# )
+add_aegisflow_test(test_sliding_counter
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sliding_counter.cpp
+)
 
-# add_test(NAME test_recent_action_window COMMAND test_recent_action_window)
+add_aegisflow_test(test_recent_action_window
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_recent_action_window.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
 
+add_aegisflow_test(test_user_state
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_user_state.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
 
-# add_executable(test_user_state
-#     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_user_state.cpp
-#     ${PROTO_SRCS}
-#     ${PROTO_HDRS}
-# )
-
-# target_include_directories(test_user_state PRIVATE
-#     ${CMAKE_CURRENT_BINARY_DIR}
-#     ${CMAKE_CURRENT_SOURCE_DIR}/include/
-# )
-
-# target_link_libraries(test_user_state PRIVATE
-#     protobuf::libprotobuf
-# )
-
-# add_test(NAME test_user_state COMMAND test_user_state)
+add_aegisflow_test(test_feature_store
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_feature_store.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
