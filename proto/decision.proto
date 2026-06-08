@@ -32,6 +32,13 @@ message FeatureSnapshot {
     uint32 user_login_fail_5m = 5;
 
     repeated string recent_actions = 6;
+
+    uint32 ip_distinct_user_10m = 7;
+    uint32 device_distinct_account_10m = 8;
+
+    uint64 cms_risk_behavior_count = 9;
+    uint64 ip_topk_estimated_count = 10;
+    bool ip_in_topk = 11;
 }
 
 message Decision {

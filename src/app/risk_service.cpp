@@ -48,6 +48,12 @@ void fillFeatureSnapshot(
     for (const auto& action : snapshot.recent_actions) {
         pb_snapshot->add_recent_actions(formatRecentAction(action));
     }
+
+    pb_snapshot->set_ip_distinct_user_10m(snapshot.ip_distinct_user_10m);
+    pb_snapshot->set_device_distinct_account_10m(snapshot.device_distinct_account_10m);
+    pb_snapshot->set_cms_risk_behavior_count(snapshot.cms_risk_behavior_count);
+    pb_snapshot->set_ip_topk_estimated_count(snapshot.ip_topk_estimated_count);
+    pb_snapshot->set_ip_in_topk(snapshot.ip_in_topk);
 }
 
 size_t normalizeWokerNum(size_t worker_num) {

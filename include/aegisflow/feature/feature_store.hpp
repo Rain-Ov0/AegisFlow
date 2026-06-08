@@ -29,6 +29,27 @@ private:
         std::unordered_map<std::string, UserState> users;
     };
 
+    static constexpr uint64_t kDistinctWindowMs = 10ULL * 60ULL * 1000ULL;
+    static constexpr uint64_t kDistinctBucketMs = 10ULL * 1000ULL;
+    static constexpr size_t kDistinctMaxMembers = 5000;
+
+    struct DistinctShard {
+        std::mutex mutex;
+        std::unordered_map<std::string, SlidingDistinct> states;
+    };
+
+    void updateIpDistinct(
+        const aegisflow::v1::Event& event,
+        uint64_t now_ms,
+        FeatureSnapshot& out
+    );
+
+    void updateDeviceDistinct(
+        const aegisflow::v1::Event& event,
+        uint64_t now_ms,
+        FeatureSnapshot& out
+    );
+
     [[nodiscard]] size_t shardIndex(const std::string& user_id) const;
     [[nodiscard]] static bool isEventTimeValid(uint64_t event_ts_ms, uint64_t now_ms);
     static FeatureSnapshot buildSnapshot(
@@ -39,6 +60,8 @@ private:
 
 private:
     std::array<Shard, kShardNum> shards_;
+    std::array<DistinctShard, kShardNum> ip_shards_;
+    std::array<DistinctShard, kShardNum> device_shards_;
 };
 
 }

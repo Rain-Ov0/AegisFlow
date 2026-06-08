@@ -6,6 +6,7 @@
 
 #include "aegisflow/feature/recent_action_window.hpp"
 #include "aegisflow/feature/sliding_counter.hpp"
+#include "aegisflow/feature/sliding_distinct.hpp"
 
 namespace aegisflow::feature {
 
@@ -18,6 +19,13 @@ struct FeatureSnapshot {
     uint32_t user_login_fail_5m = 0;
 
     std::vector<RecentAction> recent_actions;
+
+    uint32_t ip_distinct_user_10m = 0;
+    uint32_t device_distinct_account_10m = 0;
+
+    uint64_t cms_risk_behavior_count = 0;
+    uint64_t ip_topk_estimated_count = 0;
+    bool ip_in_topk = false;
 };
 
 struct UserState {

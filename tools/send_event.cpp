@@ -161,6 +161,10 @@ int main(int argc, char* argv[]) {
             << "features.user_login_1h=" << features.user_login_1h() << std::endl
             << "features.user_login_fail_5m=" << features.user_login_fail_5m()
             << std::endl;
+
+        std::cout << "features.ip_distinct_user_10m=" << features.ip_distinct_user_10m() << std::endl
+            << "features.device_distinct_account_10m=" << features.device_distinct_account_10m() 
+            << std::endl;
         
         for (const auto& reason : decision.reasons()) {
             std::cout << "reason code=" << reason.code()
