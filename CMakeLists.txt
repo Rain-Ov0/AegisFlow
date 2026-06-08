@@ -92,3 +92,7 @@ add_aegisflow_test(test_feature_store
 add_aegisflow_test(test_sliding_distinct
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sliding_distinct.cpp
 )
+
+add_aegisflow_test(test_count_min_sketch
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_count_min_sketch.cpp
+)
