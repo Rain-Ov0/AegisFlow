@@ -14,8 +14,7 @@ class CountMinSketch {
 public:
     CountMinSketch(size_t depth, size_t width) 
         : depth_(depth), 
-        width_(width),
-        table_(depth * width, 0) {
+        width_(width) {
             if (depth == 0) {
                 throw std::invalid_argument("depth must be greater than 0");
             }
@@ -24,14 +23,20 @@ public:
                 throw std::invalid_argument("width must be greater than 0");
             }
 
-            seeds_.resize(depth_);
-            uint64_t seed = 1469598103934665603ULL;
+            table_.resize(depth_ * width_, 0);
+            seeds_.reserve(depth_);
+            constexpr uint64_t kSeedBase = 1469598103934665603ULL;
+            constexpr uint64_t kSeedStep = 0x9e3779b97f4a7c15ULL;
+            
             for (size_t i = 0; i < depth_; ++ i ) {
-                seeds_.push_back(seed + i * 0x9e3779b97f4a7c15ULL);
+                seeds_.push_back(kSeedBase + i * kSeedStep);
             }
         }
 
 void add(std::string_view key, uint32_t delta = 1) {
+    if (delta == 0) {
+        return ;
+    }
     for (size_t row = 0; row < depth_; ++ row) {
         const size_t col = hash(key, seeds_[row]) % width_;
         table_[row * width_ + col] += delta;

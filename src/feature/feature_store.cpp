@@ -56,6 +56,8 @@ FeatureSnapshot FeatureStore::updateAndGet(
 
     updateIpDistinct(event, now_ms, snapshot);
     updateDeviceDistinct(event, now_ms, snapshot);
+    updateTopK(event, snapshot);
+    updateCms(event, snapshot);
 
     return snapshot;
 }
@@ -108,6 +110,32 @@ void FeatureStore::updateDeviceDistinct(
     out.device_distinct_account_10m = distinct.count(now_ms);
 }
 
+void FeatureStore::updateTopK(
+    const aegisflow::v1::Event& event,
+    FeatureSnapshot& out
+) {
+    if (event.ip().empty()) {
+        return;
+    }
+
+    const auto result = ip_topk_.updateAndGet(event.ip());
+    out.ip_topk_estimated_count = result.estimated_count;
+    out.ip_in_topk = result.in_topk && 
+        result.estimated_count >= kTopKMinEstimatedCount;
+}
+
+void FeatureStore::updateCms(
+    const aegisflow::v1::Event& event,
+    FeatureSnapshot& out
+) {
+    if (event.ip().empty()) {
+        return ;
+    }
+
+    const std::string risk_key = buildRiskKey(event);
+    out.cms_risk_behavior_count = risk_cms_.addAndEstimate(risk_key);
+}
+
 size_t FeatureStore::shardIndex(const std::string& user_id) const {
     return std::hash<std::string>()(user_id) % kShardNum;
 }
@@ -132,6 +160,26 @@ FeatureSnapshot FeatureStore::buildSnapshot(
     snapshot.user_login_fail_5m = state.login_fail_5m.sum(now_ms);
     snapshot.recent_actions = state.recent_actions.list();
     return snapshot;
+}
+
+std::string FeatureStore::buildRiskKey(
+    const aegisflow::v1::Event& event
+) {
+    std::string type = aegisflow::v1::EventType_Name(event.type());
+    std::string result = aegisflow::v1::EventResult_Name(event.result());
+
+    std::string key;
+    key.reserve(event.ip().size() + event.scene().size() + type.size() + result.size() + 3);
+
+    key.append(event.ip());
+    key.push_back('|');
+    key.append(event.scene());
+    key.push_back('|'); 
+    key.append(type);
+    key.push_back('|');
+    key.append(result);
+
+    return key;
 }
 
 } // namespace aegisflow::feature

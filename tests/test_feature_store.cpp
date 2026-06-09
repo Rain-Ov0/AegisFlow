@@ -15,7 +15,10 @@ v1::Event makeEvent(
     const std::string& user_id,
     uint64_t timestamp_ms,
     v1::EventType type = v1::LOGIN,
-    v1::EventResult result = v1::SUCCESS
+    v1::EventResult result = v1::SUCCESS,
+    const std::string& ip = "",
+    const std::string& device_id = "",
+    const std::string& scene = ""
 ) {
     v1::Event event;
     event.set_event_id(event_id);
@@ -23,6 +26,9 @@ v1::Event makeEvent(
     event.set_timestamp_ms(timestamp_ms);
     event.set_type(type);
     event.set_result(result);
+    event.set_ip(ip);
+    event.set_device_id(device_id);
+    event.set_scene(scene);
     return event;
 }
 
@@ -157,6 +163,60 @@ void test_concurrent_different_users() {
     }
 }
 
+void test_topk_and_cms_features() {
+    FeatureStore store;
+    constexpr uint64_t kNow = 3000000;
+    const std::string attack_ip = "10.0.0.1";
+    
+    aegisflow::feature::FeatureSnapshot snapshot;
+
+    for (uint64_t i = 0; i < 100; ++ i) {
+        snapshot = store.updateAndGet(
+            makeEvent(
+                i,
+                "attack_user_" + std::to_string(i),
+                kNow + i,
+                v1::LOGIN,
+                v1::FAIL,
+                attack_ip,
+                "attack_device",
+                "login"
+            ),
+            kNow + i
+        );
+    }
+
+    assert(snapshot.ip_distinct_user_10m == 100);
+    assert(snapshot.device_distinct_account_10m == 100);
+    assert(snapshot.ip_topk_estimated_count >= 100);
+    assert(snapshot.ip_in_topk);
+    assert(snapshot.cms_risk_behavior_count >= 100);
+}
+
+void test_empty_ip_skips_topk_and_cms() {
+    FeatureStore store;
+    constexpr uint64_t kNow = 4000000;
+
+    const auto snapshot = store.updateAndGet(
+        makeEvent(
+            1,
+            "u1",
+            kNow,
+            v1::LOGIN,
+            v1::FAIL,
+            "",
+            "device_1",
+            "login"
+        ),
+        kNow
+    );
+    assert(snapshot.ip_distinct_user_10m == 0);
+    assert(snapshot.device_distinct_account_10m == 1);
+    assert(snapshot.ip_topk_estimated_count == 0);
+    assert(!snapshot.ip_in_topk);
+    assert(snapshot.cms_risk_behavior_count == 0);
+}
+
 int main() {
     test_login_counters();
     test_window_boundaries();
@@ -165,6 +225,8 @@ int main() {
     test_recent_actions_keep_latest_20();
     test_concurrent_same_user();
     test_concurrent_different_users();
+    test_topk_and_cms_features();
+    test_empty_ip_skips_topk_and_cms();
 
     std::cout << "test_feature_store passed" << std::endl;
     return 0;
