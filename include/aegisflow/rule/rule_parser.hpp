@@ -31,7 +31,12 @@ private:
     Rule parseRule();
 
     uint32_t parseExpr();
+    uint32_t parseOr();
+    uint32_t parseAnd();
+    uint32_t parseUnary();
+    uint32_t parsePrimary();
     uint32_t parseCondition();
+
     CompareOp parseCompareOp();
     Value parseValue();
     DecisionAction parseAction();
@@ -50,6 +55,7 @@ private:
     ) const;
 
     uint32_t makeConditionNode(const Condition& condition);
+    uint32_t makeLogicNode(NodeType type, const std::vector<uint32_t>& children);
 
     static std::string conditionKey(const Condition& condition);
     static std::string opToString(CompareOp op);

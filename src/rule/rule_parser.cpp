@@ -97,17 +97,48 @@ Rule RuleParser::parseRule() {
 
 
 uint32_t RuleParser::parseExpr() {
-    if (check(TokenType::Not) || check(TokenType::LParen)) {
-        fail(peek(), "");
+    return parseOr();
+}
+
+uint32_t RuleParser::parseOr() {
+    uint32_t left = parseAnd();
+
+    while (match(TokenType::Or)) {
+        const uint32_t right = parseAnd();
+        left = makeLogicNode(NodeType::Or, {left, right});
     }
 
-    const uint32_t node_id = parseCondition();
+    return left;
+}
 
-    if (check(TokenType::And) || check(TokenType::Or) || check(TokenType::RParen)) {
-        fail(peek(), "");
+uint32_t RuleParser::parseAnd() {
+    uint32_t left = parseUnary();
+
+    while (match(TokenType::And)) {
+        const uint32_t right = parseUnary();
+        left = makeLogicNode(NodeType::And, {left, right});
     }
 
-    return node_id;
+    return left;
+}
+
+uint32_t RuleParser::parseUnary() {
+    if (match(TokenType::Not)) {
+        const uint32_t child = parseUnary();
+        return makeLogicNode(NodeType::Not, {child});
+    }
+
+    return parsePrimary();
+}
+
+uint32_t RuleParser::parsePrimary() {
+    if (match(TokenType::LParen)) {
+        const uint32_t node_id = parseExpr();
+        consume(TokenType::RParen, "expected ')' after expression");
+        return node_id;
+    }
+
+    return parseCondition();
 }
 
 uint32_t RuleParser::parseCondition() {
@@ -256,6 +287,21 @@ uint32_t RuleParser::makeConditionNode(const Condition& condition) {
     rule_set_.nodes.push_back(std::move(node));
     condition_cache_.emplace(key, id);
 
+    return id;
+}
+
+uint32_t RuleParser::makeLogicNode(
+    NodeType type,
+    const std::vector<uint32_t>& children
+) {
+    const uint32_t id = static_cast<uint32_t>(rule_set_.nodes.size());
+
+    RuleNode node;
+    node.id = id;
+    node.type = type;
+    node.children = children;
+
+    rule_set_.nodes.push_back(std::move(node));
     return id;
 }
 

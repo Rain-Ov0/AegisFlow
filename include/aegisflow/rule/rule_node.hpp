@@ -45,7 +45,7 @@ struct RuleNode {
     uint32_t id = 0;
     NodeType type = NodeType::Condition;
     Condition condition;
-    std::vector<RuleNode> children;
+    std::vector<uint32_t> children;
 };
 
 enum class DecisionAction {
