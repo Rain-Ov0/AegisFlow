@@ -130,3 +130,8 @@ add_aegisflow_test(test_feature_store_attack_flow
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
+
+add_aegisflow_test(test_rule_lexer
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_lexer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
+)
