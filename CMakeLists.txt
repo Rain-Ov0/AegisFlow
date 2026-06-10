@@ -7,14 +7,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Protobuf REQUIRED)
 
-set(PROTO_FILES 
+set(PROTO_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/proto/event.proto
     ${CMAKE_CURRENT_SOURCE_DIR}/proto/decision.proto
 )
 
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 
-add_executable(AegisFlow 
+add_executable(AegisFlow
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/log/logger.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/config/config.cpp
@@ -26,7 +26,7 @@ add_executable(AegisFlow
     ${PROTO_HDRS}
 )
 
-target_include_directories(AegisFlow PRIVATE 
+target_include_directories(AegisFlow PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include/
 )
@@ -41,11 +41,27 @@ add_executable(send_event
     ${PROTO_HDRS}
 )
 
-target_include_directories(send_event PRIVATE 
+target_include_directories(send_event PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 target_link_libraries(send_event PRIVATE
+    protobuf::libprotobuf
+)
+
+add_executable(benchmark_feature_store
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_feature_store.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
+
+target_include_directories(benchmark_feature_store PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/
+)
+
+target_link_libraries(benchmark_feature_store PRIVATE
     protobuf::libprotobuf
 )
 
@@ -99,4 +115,18 @@ add_aegisflow_test(test_count_min_sketch
 
 add_aegisflow_test(test_space_saving_topk
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_space_saving_topk.cpp
+)
+
+add_aegisflow_test(test_feature_store_ip_device
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_feature_store_ip_device.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
+
+add_aegisflow_test(test_feature_store_attack_flow
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_feature_store_attack_flow.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
 )
