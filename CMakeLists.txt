@@ -135,3 +135,9 @@ add_aegisflow_test(test_rule_lexer
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_lexer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
 )
+
+add_aegisflow_test(test_rule_parser
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
+)
