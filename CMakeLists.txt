@@ -141,3 +141,12 @@ add_aegisflow_test(test_rule_parser
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
 )
+
+add_aegisflow_test(test_rule_engine
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_engine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
