@@ -7,6 +7,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Protobuf REQUIRED)
 
+find_path(MYSQL_INCLUDE_DIR
+    NAMES mysql.h
+    PATHS
+        /usr/include/mysql
+        /usr/include/mariadb
+        /usr/local/include/mysql
+        /usr/local/include/mariadb
+)
+
+find_library(MYSQLCLIENT_LIBRARY
+    NAMES mysqlclient mariadb
+)
+
+if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQLCLIENT_LIBRARY)
+    message(FATAL_ERROR "MySQL client library not found. Please install libmysqlclient-dev or libmariadb-dev.")
+endif()
+
 set(PROTO_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/proto/event.proto
     ${CMAKE_CURRENT_SOURCE_DIR}/proto/decision.proto
@@ -27,6 +44,7 @@ add_executable(AegisFlow
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
@@ -34,10 +52,12 @@ add_executable(AegisFlow
 target_include_directories(AegisFlow PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include/
+    ${MYSQL_INCLUDE_DIR}
 )
 
 target_link_libraries(AegisFlow PRIVATE
     protobuf::libprotobuf
+    ${MYSQLCLIENT_LIBRARY}
 )
 
 add_executable(send_event
