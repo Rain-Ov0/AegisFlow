@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -39,6 +40,8 @@ struct Condition {
     std::string feature_name;
     CompareOp op = CompareOp::Eq;
     Value expected;
+    size_t line = 1;
+    size_t column = 1;
 };
 
 struct RuleNode {

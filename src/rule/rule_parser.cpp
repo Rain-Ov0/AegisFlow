@@ -47,10 +47,10 @@ double parseNumber(const Token& token) {
 
 RuleParser::RuleParser(std::vector<Token> tokens)
     : tokens_(std::move(tokens)) {
-        if (tokens_.empty() || tokens_.back().type != TokenType::End) {
-            tokens_.push_back({TokenType::End, "", 1, 1});
-        }
+    if (tokens_.empty() || tokens_.back().type != TokenType::End) {
+        tokens_.push_back({TokenType::End, "", 1, 1});
     }
+}
 
 RuleSet RuleParser::parseRuleSet() {
     pos_ = 0;
@@ -94,7 +94,6 @@ Rule RuleParser::parseRule() {
     rule.root_node_id = root_node_id;
     return rule;
 }
-
 
 uint32_t RuleParser::parseExpr() {
     return parseOr();
@@ -146,6 +145,8 @@ uint32_t RuleParser::parseCondition() {
 
     Condition condition;
     condition.feature_name = feature.text;
+    condition.line = feature.line;
+    condition.column = feature.column;
     condition.op = parseCompareOp();
     condition.expected = parseValue();
 

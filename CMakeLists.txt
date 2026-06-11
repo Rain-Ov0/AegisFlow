@@ -26,6 +26,7 @@ add_executable(AegisFlow
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
@@ -169,10 +170,18 @@ add_aegisflow_test(test_risk_service_integration
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
 
 target_compile_definitions(test_risk_service_integration PRIVATE
     AEGISFLOW_TEST_RULE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/config/rules.dsl"
+)
+
+add_aegisflow_test(test_rule_validator
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_validator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
 )

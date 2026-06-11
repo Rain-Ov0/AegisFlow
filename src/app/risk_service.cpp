@@ -2,6 +2,7 @@
 
 #include "aegisflow/rule/rule_lexer.hpp"
 #include "aegisflow/rule/rule_parser.hpp"
+#include "aegisflow/rule/rule_validator.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -47,20 +48,27 @@ std::shared_ptr<const aegisflow::rule::RuleSet> loadRuleSetFromFile(
     std::ostringstream buffer;
     buffer << input.rdbuf();
 
-    aegisflow::rule::RuleLexer lexer(buffer.str());
-    aegisflow::rule::RuleParser parser(lexer.tokenize());
+    try {
+        aegisflow::rule::RuleLexer lexer(buffer.str());
+        aegisflow::rule::RuleParser parser(lexer.tokenize());
 
-    return std::make_shared<aegisflow::rule::RuleSet>(
-        parser.parseRuleSet()
-    );
+        auto rule_set = parser.parseRuleSet();
+        aegisflow::rule::RuleValidator::validate(rule_set);
+
+        return std::make_shared<aegisflow::rule::RuleSet>(std::move(rule_set));
+    } catch (const std::exception& e) {
+        throw std::runtime_error(
+            "failed to load rule file '" + rule_file + "': " + e.what()
+        );
+    }
 }
 
 std::string formatRecentAction(const aegisflow::feature::RecentAction& action) {
-    return aegisflow::v1::EventType_Name(action.type) + 
-    ":" + 
-    aegisflow::v1::EventResult_Name(action.result) + 
-    "@" +
-    std::to_string(action.timestamp_ms);
+    return aegisflow::v1::EventType_Name(action.type) +
+        ":" +
+        aegisflow::v1::EventResult_Name(action.result) +
+        "@" +
+        std::to_string(action.timestamp_ms);
 }
 
 void fillFeatureSnapshot(
@@ -141,7 +149,7 @@ void fillReasons(
     }
 }
 
-} //namespace
+} // namespace
 
 RiskService::RiskService(size_t worker_num, std::string rule_file)
     : rule_set_(loadRuleSetFromFile(rule_file)),
@@ -150,7 +158,6 @@ RiskService::RiskService(size_t worker_num, std::string rule_file)
       feature_store_(),
       worker_pool_(normalizeWorkerNum(worker_num)) {}
 
-// 处理事件
 aegisflow::v1::ReportEventResponse RiskService::handleEvent(
     const aegisflow::v1::ReportEventRequest& request
 ) {
