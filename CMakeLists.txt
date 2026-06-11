@@ -142,6 +142,10 @@ add_aegisflow_test(test_space_saving_topk
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_space_saving_topk.cpp
 )
 
+add_aegisflow_test(test_bloom_filter
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bloom_filter.cpp
+)
+
 add_aegisflow_test(test_feature_store_ip_device
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_feature_store_ip_device.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
