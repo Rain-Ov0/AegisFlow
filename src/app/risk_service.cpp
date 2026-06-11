@@ -1,9 +1,18 @@
 #include "aegisflow/app/risk_service.hpp"
+
+#include "aegisflow/rule/rule_lexer.hpp"
+#include "aegisflow/rule/rule_parser.hpp"
+
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
 #include <string>
-#include <algorithm>
 #include <thread>
+#include <vector>
 
 namespace aegisflow::app {
 
@@ -18,12 +27,31 @@ uint64_t nowMills() {
     );
 }
 
-uint64_t elapseMicros(std::chrono::steady_clock::time_point start) {
+uint64_t elapsedMicros(std::chrono::steady_clock::time_point start) {
     using namespace std::chrono;
     return static_cast<uint64_t>(
         duration_cast<microseconds>(
             steady_clock::now() - start
         ).count()
+    );
+}
+
+std::shared_ptr<const aegisflow::rule::RuleSet> loadRuleSetFromFile(
+    const std::string& rule_file
+) {
+    std::ifstream input(rule_file);
+    if (!input.is_open()) {
+        throw std::runtime_error("failed to open rule file: " + rule_file);
+    }
+
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+
+    aegisflow::rule::RuleLexer lexer(buffer.str());
+    aegisflow::rule::RuleParser parser(lexer.tokenize());
+
+    return std::make_shared<aegisflow::rule::RuleSet>(
+        parser.parseRuleSet()
     );
 }
 
@@ -56,7 +84,7 @@ void fillFeatureSnapshot(
     pb_snapshot->set_ip_in_topk(snapshot.ip_in_topk);
 }
 
-size_t normalizeWokerNum(size_t worker_num) {
+size_t normalizeWorkerNum(size_t worker_num) {
     if (worker_num != 0) {
         return worker_num;
     }
@@ -69,11 +97,58 @@ size_t normalizeWokerNum(size_t worker_num) {
     return std::max<size_t>(2, hardware_num);
 }
 
+aegisflow::v1::DecisionAction toProtoAction(
+    aegisflow::rule::DecisionAction action
+) {
+    switch (action) {
+    case aegisflow::rule::DecisionAction::Pass:
+        return aegisflow::v1::PASS;
+    case aegisflow::rule::DecisionAction::Review:
+        return aegisflow::v1::REVIEW;
+    case aegisflow::rule::DecisionAction::Reject:
+        return aegisflow::v1::REJECT;
+    }
+
+    return aegisflow::v1::DECISION_ACTION_UNKOWN;
+}
+
+void appendValidationHits(
+    const aegisflow::v1::Event& event,
+    std::vector<aegisflow::rule::RuleHit>& hits
+) {
+    if (!event.user_id().empty()) {
+        return;
+    }
+
+    hits.push_back({
+        0,
+        "request_validation",
+        100000,
+        aegisflow::rule::DecisionAction::Review,
+        "invalid_user_id"
+    });
+}
+
+void fillReasons(
+    const aegisflow::rule::DecisionResult& result,
+    aegisflow::v1::Decision* decision
+) {
+    for (const auto& reason_code : result.reasons) {
+        auto* reason = decision->add_reasons();
+        reason->set_code(reason_code);
+        reason->set_message(reason_code);
+        reason->set_severity(1);
+    }
+}
+
 } //namespace
 
-RiskService::RiskService(size_t worker_num)
-    : feature_store_(),
-      worker_pool_(normalizeWokerNum(worker_num)) {}
+RiskService::RiskService(size_t worker_num, std::string rule_file)
+    : rule_set_(loadRuleSetFromFile(rule_file)),
+      rule_engine_(rule_set_),
+      decision_aggregator_(),
+      feature_store_(),
+      worker_pool_(normalizeWorkerNum(worker_num)) {}
 
 // 处理事件
 aegisflow::v1::ReportEventResponse RiskService::handleEvent(
@@ -93,25 +168,20 @@ aegisflow::v1::ReportEventResponse RiskService::handleEvent(
 
     const auto snapshot = future.get();
 
+    auto hits = rule_engine_.evaluate(snapshot, event.scene());
+    appendValidationHits(event, hits);
+
+    const auto result = decision_aggregator_.aggregate(hits);
+
     decision->set_event_id(event.event_id());
     decision->set_user_id(event.user_id());
+    decision->set_action(toProtoAction(result.action));
+    decision->set_risk_score(result.risk_score);
 
-    if (event.user_id().empty()) {
-        decision->set_action(aegisflow::v1::REVIEW);
-        decision->set_risk_score(10);
-    
-        auto* reason = decision->add_reasons();
-        reason->set_code("invalid_user_id");
-        reason->set_message("empty user_id");
-        reason->set_severity(1);
-    } else {
-        decision->set_action(aegisflow::v1::PASS);
-        decision->set_risk_score(0);
-    }
-
+    fillReasons(result, decision);
     fillFeatureSnapshot(snapshot, decision->mutable_features());
 
-    decision->set_cost_us(elapseMicros(start));
+    decision->set_cost_us(elapsedMicros(start));
 
     return response;
 }

@@ -22,6 +22,10 @@ add_executable(AegisFlow
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/risk_service.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/worker_pool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
@@ -149,4 +153,9 @@ add_aegisflow_test(test_rule_engine
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
+)
+
+add_aegisflow_test(test_decision_aggregator
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_decision_aggregator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
 )
