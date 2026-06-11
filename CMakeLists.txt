@@ -209,3 +209,11 @@ add_aegisflow_test(test_rule_validator
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
 )
+
+add_aegisflow_test(test_lru_cache
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_lru_cache.cpp
+)
+
+add_aegisflow_test(test_ttl_cache
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ttl_cache.cpp
+)
