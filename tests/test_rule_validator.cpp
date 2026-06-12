@@ -37,6 +37,12 @@ void assertValidationMessage(
 
 void test_valid_rule_set_passes() {
     const RuleSet rule_set = parse(
+        "RULE black_user_reject\n"
+        "SCENE all\n"
+        "PRIORITY 1000\n"
+        "IF user.black_hit == true\n"
+        "THEN REJECT REASON \"blacklisted_user\"\n"
+        "\n"
         "RULE login_fail_review\n"
         "SCENE login\n"
         "PRIORITY 100\n"
@@ -51,6 +57,12 @@ void test_valid_rule_set_passes() {
     );
 
     RuleValidator::validate(rule_set);
+}
+
+void test_blacklist_features_are_supported() {
+    assert(RuleValidator::isSupportedFeature("user.black_hit"));
+    assert(RuleValidator::isSupportedFeature("ip.black_hit"));
+    assert(RuleValidator::isSupportedFeature("device.black_hit"));
 }
 
 void test_unknown_feature_reports_line_and_column() {
@@ -86,6 +98,17 @@ void test_bool_feature_requires_bool_value() {
     );
 }
 
+void test_blacklist_bool_feature_requires_bool_value() {
+    assertValidationMessage(
+        "RULE bad_black_type\n"
+        "SCENE all\n"
+        "PRIORITY 1000\n"
+        "IF user.black_hit == 1\n"
+        "THEN REJECT REASON \"bad_black_type\"\n",
+        "feature 'user.black_hit' expects bool value but got number"
+    );
+}
+
 void test_bool_feature_rejects_ordering_operator() {
     assertValidationMessage(
         "RULE bad_operator\n"
@@ -99,9 +122,11 @@ void test_bool_feature_rejects_ordering_operator() {
 
 int main() {
     test_valid_rule_set_passes();
+    test_blacklist_features_are_supported();
     test_unknown_feature_reports_line_and_column();
     test_number_feature_requires_number_value();
     test_bool_feature_requires_bool_value();
+    test_blacklist_bool_feature_requires_bool_value();
     test_bool_feature_rejects_ordering_operator();
 
     std::cout << "test_rule_validator passed" << std::endl;

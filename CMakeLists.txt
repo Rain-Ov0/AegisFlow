@@ -196,12 +196,22 @@ add_aegisflow_test(test_risk_service_integration
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
 
 target_compile_definitions(test_risk_service_integration PRIVATE
     AEGISFLOW_TEST_RULE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/config/rules.dsl"
+)
+
+target_include_directories(test_risk_service_integration PRIVATE
+    ${MYSQL_INCLUDE_DIR}
+)
+
+target_link_libraries(test_risk_service_integration PRIVATE
+    ${MYSQLCLIENT_LIBRARY}
 )
 
 add_aegisflow_test(test_rule_validator

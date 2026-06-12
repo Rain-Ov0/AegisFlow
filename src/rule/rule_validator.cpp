@@ -24,6 +24,9 @@ const std::unordered_map<std::string, FeatureKind>& featureKinds() {
         {"device.distinct_account_10m", FeatureKind::Number},
         {"cms.risk_behavior_count", FeatureKind::Number},
         {"ip.in_topk", FeatureKind::Bool},
+        {"user.black_hit", FeatureKind::Bool},
+        {"ip.black_hit", FeatureKind::Bool},
+        {"device.black_hit", FeatureKind::Bool},
     };
 
     return features;

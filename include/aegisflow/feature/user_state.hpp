@@ -26,6 +26,11 @@ struct FeatureSnapshot {
     uint64_t cms_risk_behavior_count = 0;
     uint64_t ip_topk_estimated_count = 0;
     bool ip_in_topk = false;
+
+    bool user_black_hit = false;
+    bool ip_black_hit = false;
+    bool device_black_hit = false;
+    std::string blacklist_reason;
 };
 
 struct UserState {

@@ -21,13 +21,14 @@ Value boolValue(bool value) {
     result.bool_value = value;
     return result;
 }
+
 } // namespace
 
 std::optional<Value> FeatureResolver::get(
     const aegisflow::feature::FeatureSnapshot& features,
     const std::string& name
 ) {
-        if (name == "user.login_1m") {
+    if (name == "user.login_1m") {
         return numberValue(static_cast<double>(features.user_login_1m));
     }
 
@@ -63,15 +64,27 @@ std::optional<Value> FeatureResolver::get(
         return boolValue(features.ip_in_topk);
     }
 
+    if (name == "user.black_hit") {
+        return boolValue(features.user_black_hit);
+    }
+
+    if (name == "ip.black_hit") {
+        return boolValue(features.ip_black_hit);
+    }
+
+    if (name == "device.black_hit") {
+        return boolValue(features.device_black_hit);
+    }
+
     return std::nullopt;
 }
 
 RuleEngine::RuleEngine(std::shared_ptr<const RuleSet> rule_set)
     : rule_set_(std::move(rule_set)) {
-        if (!rule_set_) {
-            throw std::runtime_error("rule_set must not be null");
-        }
+    if (!rule_set_) {
+        throw std::runtime_error("rule_set must not be null");
     }
+}
 
 std::vector<RuleHit> RuleEngine::evaluate(
     const aegisflow::feature::FeatureSnapshot& features,
@@ -85,17 +98,17 @@ std::vector<RuleHit> RuleEngine::evaluate(
         }
 
         if (evalNode(rule.root_node_id, features)) {
-        hits.push_back({
-            rule.id,
-            rule.name,
-            rule.priority,
-            rule.action,
-            rule.reason_code
-        });
+            hits.push_back({
+                rule.id,
+                rule.name,
+                rule.priority,
+                rule.action,
+                rule.reason_code
+            });
         }
     }
 
-        std::sort(hits.begin(), hits.end(), [](const auto& lhs, const auto& rhs) {
+    std::sort(hits.begin(), hits.end(), [](const auto& lhs, const auto& rhs) {
         if (lhs.priority != rhs.priority) {
             return lhs.priority > rhs.priority;
         }

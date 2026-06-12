@@ -1,4 +1,5 @@
 #include "aegisflow/app/risk_service.hpp"
+#include "aegisflow/risk/blacklist_manager.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -7,6 +8,11 @@
 #include <string>
 
 namespace v1 = aegisflow::v1;
+
+using aegisflow::risk::BlacklistEntry;
+using aegisflow::risk::BlacklistManager;
+using aegisflow::risk::BlacklistManagerOptions;
+using aegisflow::risk::EntityType;
 
 #ifndef AEGISFLOW_TEST_RULE_FILE
 #define AEGISFLOW_TEST_RULE_FILE "config/rules.dsl"
@@ -21,10 +27,23 @@ uint64_t nowMillis() {
     );
 }
 
-v1::ReportEventRequest makeLoginFailRequest(
+BlacklistManagerOptions testBlacklistOptions() {
+    BlacklistManagerOptions options;
+    options.bloom_bits = 1 << 16;
+    options.bloom_hashes = 5;
+    options.cache_capacity = 64;
+    options.positive_ttl_ms = 60ULL * 1000ULL;
+    options.negative_ttl_ms = 1000ULL;
+    return options;
+}
+
+v1::ReportEventRequest makeLoginRequest(
     uint64_t event_id,
     const std::string& user_id,
-    uint64_t timestamp_ms
+    uint64_t timestamp_ms,
+    v1::EventResult result,
+    const std::string& ip = "203.0.113.66",
+    const std::string& device_id = "device_login_test"
 ) {
     v1::ReportEventRequest request;
     auto* event = request.mutable_event();
@@ -32,13 +51,21 @@ v1::ReportEventRequest makeLoginFailRequest(
     event->set_event_id(event_id);
     event->set_timestamp_ms(timestamp_ms);
     event->set_user_id(user_id);
-    event->set_ip("203.0.113.66");
-    event->set_device_id("device_login_fail_review");
+    event->set_ip(ip);
+    event->set_device_id(device_id);
     event->set_scene("login");
     event->set_type(v1::LOGIN);
-    event->set_result(v1::FAIL);
+    event->set_result(result);
 
     return request;
+}
+
+v1::ReportEventRequest makeLoginFailRequest(
+    uint64_t event_id,
+    const std::string& user_id,
+    uint64_t timestamp_ms
+) {
+    return makeLoginRequest(event_id, user_id, timestamp_ms, v1::FAIL);
 }
 
 void assertNoReason(const v1::Decision& decision) {
@@ -86,8 +113,45 @@ void test_five_failed_login_returns_review() {
     assert(decision.features().user_login_fail_5m() == 5);
 }
 
+void test_blacklisted_user_returns_reject() {
+    BlacklistManager blacklist_manager(nullptr, testBlacklistOptions());
+    blacklist_manager.loadEntries({
+        {EntityType::User, "u_black_001", "blacklisted_user", 0},
+    });
+
+    aegisflow::app::RiskService service(
+        1,
+        AEGISFLOW_TEST_RULE_FILE,
+        &blacklist_manager
+    );
+
+    const auto response = service.handleEvent(
+        makeLoginRequest(
+            100,
+            "u_black_001",
+            nowMillis(),
+            v1::SUCCESS,
+            "198.51.100.10",
+            "device_blacklist_test"
+        )
+    );
+
+    const auto& decision = response.decision();
+    assert(decision.event_id() == 100);
+    assert(decision.user_id() == "u_black_001");
+    assert(decision.action() == v1::REJECT);
+    assert(decision.risk_score() == 100);
+    assertSingleReason(decision, "blacklisted_user");
+
+    assert(decision.features().user_black_hit());
+    assert(!decision.features().ip_black_hit());
+    assert(!decision.features().device_black_hit());
+    assert(decision.features().blacklist_reason() == "blacklisted_user");
+}
+
 int main() {
     test_five_failed_login_returns_review();
+    test_blacklisted_user_returns_reject();
 
     std::cout << "test_risk_service_integration passed" << std::endl;
     return 0;

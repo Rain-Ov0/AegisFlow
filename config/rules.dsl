@@ -9,6 +9,24 @@
 # number: == != > >= < <=
 # bool:   == !=
 
+RULE black_user_reject
+SCENE all
+PRIORITY 1000
+IF user.black_hit == true
+THEN REJECT REASON "blacklisted_user"
+
+RULE black_ip_reject
+SCENE all
+PRIORITY 1000
+IF ip.black_hit == true
+THEN REJECT REASON "blacklisted_ip"
+
+RULE black_device_reject
+SCENE all
+PRIORITY 1000
+IF device.black_hit == true
+THEN REJECT REASON "blacklisted_device"
+
 RULE login_fail_review
 SCENE login
 PRIORITY 100

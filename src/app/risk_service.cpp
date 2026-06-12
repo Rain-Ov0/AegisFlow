@@ -1,5 +1,6 @@
 #include "aegisflow/app/risk_service.hpp"
 
+#include "aegisflow/risk/blacklist_manager.hpp"
 #include "aegisflow/rule/rule_lexer.hpp"
 #include "aegisflow/rule/rule_parser.hpp"
 #include "aegisflow/rule/rule_validator.hpp"
@@ -71,6 +72,29 @@ std::string formatRecentAction(const aegisflow::feature::RecentAction& action) {
         std::to_string(action.timestamp_ms);
 }
 
+void applyBlacklistResult(
+    const aegisflow::risk::BlacklistCheckResult& result,
+    aegisflow::feature::FeatureSnapshot& snapshot
+) {
+    if (!result.hit) {
+        return;
+    }
+
+    switch (result.type) {
+    case aegisflow::risk::EntityType::User:
+        snapshot.user_black_hit = true;
+        break;
+    case aegisflow::risk::EntityType::Ip:
+        snapshot.ip_black_hit = true;
+        break;
+    case aegisflow::risk::EntityType::Device:
+        snapshot.device_black_hit = true;
+        break;
+    }
+
+    snapshot.blacklist_reason = result.reason;
+}
+
 void fillFeatureSnapshot(
     const aegisflow::feature::FeatureSnapshot& snapshot,
     aegisflow::v1::FeatureSnapshot* pb_snapshot
@@ -90,6 +114,11 @@ void fillFeatureSnapshot(
     pb_snapshot->set_cms_risk_behavior_count(snapshot.cms_risk_behavior_count);
     pb_snapshot->set_ip_topk_estimated_count(snapshot.ip_topk_estimated_count);
     pb_snapshot->set_ip_in_topk(snapshot.ip_in_topk);
+
+    pb_snapshot->set_user_black_hit(snapshot.user_black_hit);
+    pb_snapshot->set_ip_black_hit(snapshot.ip_black_hit);
+    pb_snapshot->set_device_black_hit(snapshot.device_black_hit);
+    pb_snapshot->set_blacklist_reason(snapshot.blacklist_reason);
 }
 
 size_t normalizeWorkerNum(size_t worker_num) {
@@ -151,10 +180,15 @@ void fillReasons(
 
 } // namespace
 
-RiskService::RiskService(size_t worker_num, std::string rule_file)
+RiskService::RiskService(
+    size_t worker_num,
+    std::string rule_file,
+    aegisflow::risk::BlacklistManager* blacklist_manager
+)
     : rule_set_(loadRuleSetFromFile(rule_file)),
       rule_engine_(rule_set_),
       decision_aggregator_(),
+      blacklist_manager_(blacklist_manager),
       feature_store_(),
       worker_pool_(normalizeWorkerNum(worker_num)) {}
 
@@ -173,7 +207,11 @@ aegisflow::v1::ReportEventResponse RiskService::handleEvent(
         return feature_store_.updateAndGet(event, now_ms);
     });
 
-    const auto snapshot = future.get();
+    auto snapshot = future.get();
+
+    if (blacklist_manager_ != nullptr) {
+        applyBlacklistResult(blacklist_manager_->checkEvent(event), snapshot);
+    }
 
     auto hits = rule_engine_.evaluate(snapshot, event.scene());
     appendValidationHits(event, hits);

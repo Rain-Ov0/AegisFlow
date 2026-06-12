@@ -181,6 +181,41 @@ void test_bool_and_cms_conditions() {
     assert(hits[0].reason_code == "hot_ip_high_frequency");
 }
 
+void test_blacklist_bool_conditions() {
+    FeatureSnapshot features;
+    features.user_black_hit = true;
+    features.ip_black_hit = true;
+    features.device_black_hit = false;
+
+    const auto hits = evaluate(
+        "RULE black_user_reject\n"
+        "SCENE all\n"
+        "PRIORITY 1000\n"
+        "IF user.black_hit == true\n"
+        "THEN REJECT REASON \"blacklisted_user\"\n"
+        "\n"
+        "RULE black_ip_reject\n"
+        "SCENE all\n"
+        "PRIORITY 1000\n"
+        "IF ip.black_hit == true\n"
+        "THEN REJECT REASON \"blacklisted_ip\"\n"
+        "\n"
+        "RULE black_device_reject\n"
+        "SCENE all\n"
+        "PRIORITY 1000\n"
+        "IF device.black_hit == true\n"
+        "THEN REJECT REASON \"blacklisted_device\"\n",
+        features,
+        "login"
+    );
+
+    assert(hits.size() == 2);
+    assert(hits[0].action == DecisionAction::Reject);
+    assert(hits[0].reason_code == "blacklisted_user");
+    assert(hits[1].action == DecisionAction::Reject);
+    assert(hits[1].reason_code == "blacklisted_ip");
+}
+
 void test_hits_sorted_by_priority_desc() {
     FeatureSnapshot features;
     features.user_login_fail_5m = 5;
@@ -234,6 +269,7 @@ int main() {
     test_or_condition_matches_any_child();
     test_not_condition();
     test_bool_and_cms_conditions();
+    test_blacklist_bool_conditions();
     test_hits_sorted_by_priority_desc();
     test_unknown_feature_is_false();
 
