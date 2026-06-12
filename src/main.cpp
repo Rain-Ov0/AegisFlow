@@ -10,6 +10,7 @@
 #include "aegisflow/net/http_server.hpp"
 #include "aegisflow/risk/blacklist_manager.hpp"
 #include "aegisflow/storage/mysql_dao.hpp"
+#include "aegisflow/storage/redis_client.hpp"
 
 #include "decision.pb.h"
 #include "event.pb.h"
@@ -50,14 +51,8 @@ aegisflow::storage::MysqlConfig buildMysqlConfig(
     mysql_config.host = config.getString("mysql.host", mysql_config.host);
     mysql_config.port = readPort(config, "mysql.port", mysql_config.port);
     mysql_config.user = config.getString("mysql.user", mysql_config.user);
-    mysql_config.password = config.getString(
-        "mysql.password",
-        mysql_config.password
-    );
-    mysql_config.database = config.getString(
-        "mysql.database",
-        mysql_config.database
-    );
+    mysql_config.password = config.getString("mysql.password", mysql_config.password);
+    mysql_config.database = config.getString("mysql.database", mysql_config.database);
     mysql_config.charset = config.getString("mysql.charset", mysql_config.charset);
     mysql_config.connect_timeout_sec = readUnsignedInt(
         config,
@@ -76,6 +71,23 @@ aegisflow::storage::MysqlConfig buildMysqlConfig(
     );
 
     return mysql_config;
+}
+
+aegisflow::storage::RedisConfig buildRedisConfig(
+    const aegisflow::config::Config& config
+) {
+    aegisflow::storage::RedisConfig redis_config;
+
+    redis_config.host = config.getString("redis.host", redis_config.host);
+    redis_config.port = readPort(config, "redis.port", redis_config.port);
+    redis_config.password = config.getString("redis.password", redis_config.password);
+    redis_config.timeout_ms = readUnsignedInt(
+        config,
+        "redis.timeout_ms",
+        redis_config.timeout_ms
+    );
+
+    return redis_config;
 }
 
 aegisflow::risk::BlacklistManagerOptions buildBlacklistOptions(
@@ -130,8 +142,17 @@ int main(int argc, char* argv[]) {
             config_.getString("rule.file", "config/rules.dsl");
 
         aegisflow::storage::MysqlDao mysql_dao(buildMysqlConfig(config_));
+        aegisflow::storage::RedisClient redis_client(buildRedisConfig(config_));
+
+        if (redis_client.connect()) {
+            LOG_INFO("redis connected");
+        } else {
+            LOG_WARN("redis connect failed: " + redis_client.lastError());
+        }
+
         aegisflow::risk::BlacklistManager blacklist_manager(
             &mysql_dao,
+            &redis_client,
             buildBlacklistOptions(config_)
         );
 
@@ -142,10 +163,7 @@ int main(int argc, char* argv[]) {
                     std::to_string(blacklist_manager.localSize())
                 );
             } else {
-                LOG_WARN(
-                    "load blacklist from mysql failed: " +
-                    mysql_dao.lastError()
-                );
+                LOG_WARN("load blacklist from mysql failed: " + mysql_dao.lastError());
             }
         } else {
             LOG_WARN("mysql connect failed: " + mysql_dao.lastError());

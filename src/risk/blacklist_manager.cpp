@@ -1,6 +1,7 @@
 #include "aegisflow/risk/blacklist_manager.hpp"
 
 #include "aegisflow/storage/mysql_dao.hpp"
+#include "aegisflow/storage/redis_client.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -12,6 +13,7 @@
 namespace aegisflow::risk {
 
 namespace {
+
 EntityType convertEntityType(aegisflow::storage::EntityType type) {
     switch (type) {
     case aegisflow::storage::EntityType::User:
@@ -40,7 +42,8 @@ BlacklistCheckResult makeMiss(EntityType type, const std::string& id) {
     result.id = id;
     return result;
 }
-}
+
+} // namespace
 
 std::string entityTypeToString(EntityType type) {
     switch (type) {
@@ -59,7 +62,15 @@ BlacklistManager::BlacklistManager(
     aegisflow::storage::MysqlDao* mysql,
     BlacklistManagerOptions options
 )
+    : BlacklistManager(mysql, nullptr, options) {}
+
+BlacklistManager::BlacklistManager(
+    aegisflow::storage::MysqlDao* mysql,
+    aegisflow::storage::RedisClient* redis,
+    BlacklistManagerOptions options
+)
     : mysql_(mysql),
+      redis_(redis),
       options_(options),
       bloom_(std::make_shared<aegisflow::cache::BloomFilter>(
           options_.bloom_bits,
@@ -190,16 +201,51 @@ BlacklistCheckResult BlacklistManager::check(
         }
     }
 
+    auto redis_hit = checkRedis(type, id, key);
+    if (redis_hit.hit) {
+        result_cache_.put(key, redis_hit, options_.positive_ttl_ms);
+        return redis_hit;
+    }
+
     auto miss = makeMiss(type, id);
     result_cache_.put(key, miss, options_.negative_ttl_ms);
     return miss;
 }
 
-std::string BlacklistManager::makeKey(EntityType type, const std::string& id) const {
+BlacklistCheckResult BlacklistManager::checkRedis(
+    EntityType type,
+    const std::string& id,
+    const std::string& local_key
+) {
+    if (redis_ == nullptr || !redis_->available()) {
+        return makeMiss(type, id);
+    }
+
+    const auto reason = redis_->get(makeRedisKey(local_key));
+    if (!reason.has_value() || reason->empty()) {
+        return makeMiss(type, id);
+    }
+
+    BlacklistCheckResult hit;
+    hit.hit = true;
+    hit.type = type;
+    hit.id = id;
+    hit.reason = *reason;
+    return hit;
+}
+
+std::string BlacklistManager::makeKey(
+    EntityType type,
+    const std::string& id
+) const {
     std::string key = entityTypeToString(type);
     key.push_back(':');
     key.append(id);
     return key;
+}
+
+std::string BlacklistManager::makeRedisKey(const std::string& local_key) const {
+    return "black:" + local_key;
 }
 
 bool BlacklistManager::isExpired(

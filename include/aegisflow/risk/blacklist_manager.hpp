@@ -14,6 +14,7 @@
 
 namespace aegisflow::storage {
 class MysqlDao;
+class RedisClient;
 }
 
 namespace aegisflow::risk {
@@ -51,7 +52,13 @@ std::string entityTypeToString(EntityType type);
 class BlacklistManager {
 public:
     explicit BlacklistManager(
-        aegisflow::storage::MysqlDao* mysql = nullptr, 
+        aegisflow::storage::MysqlDao* mysql = nullptr,
+        BlacklistManagerOptions options = {}
+    );
+
+    BlacklistManager(
+        aegisflow::storage::MysqlDao* mysql,
+        aegisflow::storage::RedisClient* redis,
         BlacklistManagerOptions options = {}
     );
 
@@ -67,8 +74,14 @@ public:
 
 private:
     BlacklistCheckResult check(EntityType type, const std::string& id);
+    BlacklistCheckResult checkRedis(
+        EntityType type,
+        const std::string& id,
+        const std::string& local_key
+    );
 
     [[nodiscard]] std::string makeKey(EntityType type, const std::string& id) const;
+    [[nodiscard]] std::string makeRedisKey(const std::string& local_key) const;
     [[nodiscard]] bool isExpired(const BlacklistEntry& entry, uint64_t now_ms) const;
     [[nodiscard]] uint64_t positiveCacheTtl(
         const BlacklistEntry& entry,
@@ -79,12 +92,13 @@ private:
 
 private:
     aegisflow::storage::MysqlDao* mysql_ = nullptr;
+    aegisflow::storage::RedisClient* redis_ = nullptr;
     BlacklistManagerOptions options_;
 
     mutable std::shared_mutex mutex_;
     std::unordered_map<std::string, BlacklistEntry> local_blacklist_;
     std::shared_ptr<aegisflow::cache::BloomFilter> bloom_;
-    
+
     aegisflow::cache::TtlLruCache<std::string, BlacklistCheckResult> result_cache_;
 };
 

@@ -24,6 +24,34 @@ if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQLCLIENT_LIBRARY)
     message(FATAL_ERROR "MySQL client library not found. Please install libmysqlclient-dev or libmariadb-dev.")
 endif()
 
+find_path(HIREDIS_INCLUDE_DIR
+    NAMES hiredis/hiredis.h
+)
+
+find_library(HIREDIS_LIBRARY
+    NAMES hiredis
+)
+
+if(NOT HIREDIS_INCLUDE_DIR OR NOT HIREDIS_LIBRARY)
+    message(WARNING "hiredis not found. RedisClient will be built as an unavailable fallback.")
+endif()
+
+function(enable_optional_hiredis target)
+    if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
+        target_include_directories(${target} PRIVATE
+            ${HIREDIS_INCLUDE_DIR}
+        )
+
+        target_link_libraries(${target} PRIVATE
+            ${HIREDIS_LIBRARY}
+        )
+
+        target_compile_definitions(${target} PRIVATE
+            AEGISFLOW_USE_HIREDIS
+        )
+    endif()
+endfunction()
+
 set(PROTO_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/proto/event.proto
     ${CMAKE_CURRENT_SOURCE_DIR}/proto/decision.proto
@@ -45,6 +73,7 @@ add_executable(AegisFlow
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/redis_client.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
@@ -60,6 +89,8 @@ target_link_libraries(AegisFlow PRIVATE
     protobuf::libprotobuf
     ${MYSQLCLIENT_LIBRARY}
 )
+
+enable_optional_hiredis(AegisFlow)
 
 add_executable(send_event
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/send_event.cpp
@@ -198,6 +229,7 @@ add_aegisflow_test(test_risk_service_integration
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/redis_client.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
@@ -213,6 +245,8 @@ target_include_directories(test_risk_service_integration PRIVATE
 target_link_libraries(test_risk_service_integration PRIVATE
     ${MYSQLCLIENT_LIBRARY}
 )
+
+enable_optional_hiredis(test_risk_service_integration)
 
 add_aegisflow_test(test_rule_validator
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_validator.cpp
@@ -233,6 +267,7 @@ add_aegisflow_test(test_blacklist_manager
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blacklist_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/redis_client.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
@@ -244,3 +279,5 @@ target_include_directories(test_blacklist_manager PRIVATE
 target_link_libraries(test_blacklist_manager PRIVATE
     ${MYSQLCLIENT_LIBRARY}
 )
+
+enable_optional_hiredis(test_blacklist_manager)

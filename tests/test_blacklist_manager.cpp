@@ -1,4 +1,5 @@
 #include "aegisflow/risk/blacklist_manager.hpp"
+#include "aegisflow/storage/redis_client.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -139,6 +140,22 @@ void test_reload_replaces_local_state_and_clears_cache() {
     assert(!manager.checkUser("u_black_001").hit);
 }
 
+void test_redis_unavailable_still_uses_local_blacklist() {
+    aegisflow::storage::RedisClient redis_client;
+    BlacklistManager manager(nullptr, &redis_client, testOptions());
+
+    manager.loadEntries({
+        {EntityType::User, "u_black_redis_down", "blacklisted_user", 0},
+    });
+
+    const auto result = manager.checkUser("u_black_redis_down");
+
+    assert(!redis_client.available());
+    assert(result.hit);
+    assert(result.type == EntityType::User);
+    assert(result.reason == "blacklisted_user");
+}
+
 int main() {
     test_user_blacklist_hit();
     test_ip_blacklist_hit();
@@ -147,6 +164,7 @@ int main() {
     test_check_event_returns_first_hit();
     test_expired_entry_is_not_loaded();
     test_reload_replaces_local_state_and_clears_cache();
+    test_redis_unavailable_still_uses_local_blacklist();
 
     std::cout << "test_blacklist_manager passed" << std::endl;
     return 0;
