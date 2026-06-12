@@ -45,6 +45,7 @@ add_executable(AegisFlow
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
     ${PROTO_SRCS}
     ${PROTO_HDRS}
 )
@@ -216,4 +217,20 @@ add_aegisflow_test(test_lru_cache
 
 add_aegisflow_test(test_ttl_cache
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ttl_cache.cpp
+)
+
+add_aegisflow_test(test_blacklist_manager
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blacklist_manager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
+
+target_include_directories(test_blacklist_manager PRIVATE
+    ${MYSQL_INCLUDE_DIR}
+)
+
+target_link_libraries(test_blacklist_manager PRIVATE
+    ${MYSQLCLIENT_LIBRARY}
 )
