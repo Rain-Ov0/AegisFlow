@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Protobuf REQUIRED)
+find_package(Threads REQUIRED)
 
 find_path(MYSQL_INCLUDE_DIR
     NAMES mysql.h
@@ -120,6 +121,21 @@ target_include_directories(benchmark_feature_store PRIVATE
 
 target_link_libraries(benchmark_feature_store PRIVATE
     protobuf::libprotobuf
+)
+
+add_executable(benchmark_http
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_http.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
+
+target_include_directories(benchmark_http PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+target_link_libraries(benchmark_http PRIVATE
+    protobuf::libprotobuf
+    Threads::Threads
 )
 
 enable_testing()
