@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package aegisflow.login;
+
+enum LoginResult {
+    LOGIN_RESULT_UNKNOWN = 0;
+    SUCCESS = 1;
+    FAIL = 2;
+}
+
+message LoginRequest {
+    optional uint64 attempt_id = 1;
+    optional uint64 timestamp_ms = 2;
+    optional string user_id = 3;
+    optional string ip = 4;
+    optional string device_id = 5;
+    optional LoginResult result = 6;
+}
+
+enum DecisionAction {
+    DECISION_ACTION_UNKNOWN = 0;
+    PASS = 1;
+    REVIEW = 2;
+    REJECT = 3;
+}
+
+message PolicyHit {
+    string reason_code = 1;
+    DecisionAction action = 2;
+    int32 risk_score = 3;
+}
+
+message LoginDecision {
+    uint64 attempt_id = 1;
+    string user_id = 2;
+    DecisionAction action = 3;
+    int32 risk_score = 4;
+    repeated PolicyHit policy_hits = 5;
+    uint64 cost_us = 6;
+}
+
+enum ResponseStatus {
+    RESPONSE_STATUS_OK = 0;
+    RESPONSE_STATUS_OVERLOADED = 1;
+    RESPONSE_STATUS_TIMEOUT = 2;
+}
+
+message LoginResponse {
+    LoginDecision decision = 1;
+    ResponseStatus status = 2;
+    string reason_code = 3;
+}

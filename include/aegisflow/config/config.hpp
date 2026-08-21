@@ -1,21 +1,27 @@
-#pragma once 
+#pragma once
 
+#include "aegisflow/app/handler.hpp"
 #include "aegisflow/log/logger.hpp"
+#include "aegisflow/timer/timer.hpp"
+
 #include <string>
-#include <unordered_map>
-#include <cstdint>
 
 namespace aegisflow::config {
 
-class Config {
-public:
-    bool loadFromFile(const std::string& path);
-    std::string getString(const std::string& key, const std::string& defaultValue = "") const;
-    int getInt(const std::string& key, int defaultValue = 0) const;
-    uint64_t getUInt64(const std::string& key, uint64_t defaultValue = 0) const;
+struct AppConfig {
+    log::LoggerConfig logger;
+    timer::TimerConfig timer;
+    app::HandlerConfig handler;
 
-private:
-    std::unordered_map<std::string, std::string> values_;
+    bool operator==(const AppConfig& other) const {
+        return logger == other.logger &&
+               timer == other.timer &&
+               handler == other.handler;
+    }
 };
 
-} //namespace aegisflow::config
+// 配置文件只在这里完成解析、默认值填充和跨字段容量校验。
+// main 与业务组件只接收已经建立不变量的强类型配置。
+[[nodiscard]] AppConfig loadAppConfig(const std::string& path);
+
+}  // 命名空间 aegisflow::config

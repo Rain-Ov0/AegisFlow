@@ -1,105 +1,72 @@
 #pragma once
 
-#include "aegisflow/cache/bloom_filter.hpp"
-#include "aegisflow/cache/ttl_cache.hpp"
-#include "event.pb.h"
+#include "aegisflow/risk/blacklist_snapshot.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <shared_mutex>
-#include <string>
-#include <unordered_map>
+#include <mutex>
+#include <string_view>
 #include <vector>
-
-namespace aegisflow::storage {
-class MysqlDao;
-class RedisClient;
-}
 
 namespace aegisflow::risk {
 
-enum class EntityType {
-    User,
-    Ip,
-    Device
-};
-
-struct BlacklistEntry {
-    EntityType type = EntityType::User;
-    std::string id;
-    std::string reason;
-    uint64_t expire_at_ms = 0;
-};
-
-struct BlacklistCheckResult {
-    bool hit = false;
-    EntityType type = EntityType::User;
-    std::string id;
-    std::string reason;
-};
-
-struct BlacklistManagerOptions {
-    size_t bloom_bits = 1 << 24;
-    size_t bloom_hashes = 7;
-    size_t cache_capacity = 100000;
-    uint64_t positive_ttl_ms = 60ULL * 1000ULL;
-    uint64_t negative_ttl_ms = 30ULL * 1000ULL;
-};
-
-std::string entityTypeToString(EntityType type);
-
-class BlacklistManager {
+class BlacklistSnapshotCandidate final {
 public:
-    explicit BlacklistManager(
-        aegisflow::storage::MysqlDao* mysql = nullptr,
-        BlacklistManagerOptions options = {}
-    );
-
-    BlacklistManager(
-        aegisflow::storage::MysqlDao* mysql,
-        aegisflow::storage::RedisClient* redis,
-        BlacklistManagerOptions options = {}
-    );
-
-    bool loadFromMysql();
-    void loadEntries(const std::vector<BlacklistEntry>& entries);
-
-    BlacklistCheckResult checkUser(const std::string& user_id);
-    BlacklistCheckResult checkIp(const std::string& ip);
-    BlacklistCheckResult checkDevice(const std::string& device_id);
-    BlacklistCheckResult checkEvent(const aegisflow::v1::Event& event);
-
-    [[nodiscard]] size_t localSize() const;
+    BlacklistSnapshotCandidate(const BlacklistSnapshotCandidate&) = delete;
+    BlacklistSnapshotCandidate& operator=(
+        const BlacklistSnapshotCandidate&
+    ) = delete;
 
 private:
-    BlacklistCheckResult check(EntityType type, const std::string& id);
-    BlacklistCheckResult checkRedis(
-        EntityType type,
-        const std::string& id,
-        const std::string& local_key
+    BlacklistSnapshotCandidate(
+        BlacklistSnapshot::EntryMap users,
+        BlacklistSnapshot::EntryMap ips,
+        BlacklistSnapshot::EntryMap devices
     );
 
-    [[nodiscard]] std::string makeKey(EntityType type, const std::string& id) const;
-    [[nodiscard]] std::string makeRedisKey(const std::string& local_key) const;
-    [[nodiscard]] bool isExpired(const BlacklistEntry& entry, uint64_t now_ms) const;
-    [[nodiscard]] uint64_t positiveCacheTtl(
-        const BlacklistEntry& entry,
-        uint64_t now_ms
-    ) const;
+    BlacklistSnapshot::EntryMap users_;
+    BlacklistSnapshot::EntryMap ips_;
+    BlacklistSnapshot::EntryMap devices_;
 
-    static uint64_t nowMillis();
-
-private:
-    aegisflow::storage::MysqlDao* mysql_ = nullptr;
-    aegisflow::storage::RedisClient* redis_ = nullptr;
-    BlacklistManagerOptions options_;
-
-    mutable std::shared_mutex mutex_;
-    std::unordered_map<std::string, BlacklistEntry> local_blacklist_;
-    std::shared_ptr<aegisflow::cache::BloomFilter> bloom_;
-
-    aegisflow::cache::TtlLruCache<std::string, BlacklistCheckResult> result_cache_;
+    friend class BlacklistManager;
 };
 
-} // namespace aegisflow::risk
+class BlacklistManager final {
+public:
+    BlacklistManager() noexcept = default;
+
+    BlacklistManager(const BlacklistManager&) = delete;
+    BlacklistManager& operator=(const BlacklistManager&) = delete;
+
+    [[nodiscard]] bool publish(
+        const std::vector<BlacklistEntry>& entries,
+        std::uint64_t now_ms
+    );
+    [[nodiscard]] bool publish(
+        const std::vector<BlacklistEntry>& entries
+    );
+    [[nodiscard]] std::unique_ptr<BlacklistSnapshotCandidate> prepareCandidate(
+        const std::vector<BlacklistEntry>& entries,
+        std::uint64_t now_ms
+    ) const noexcept;
+    [[nodiscard]] bool publishCandidate(
+        std::unique_ptr<BlacklistSnapshotCandidate> candidate
+    ) noexcept;
+
+    [[nodiscard]] LoginBlacklistMatches matches(
+        std::string_view user_id,
+        std::string_view ip,
+        std::string_view device_id,
+        std::uint64_t now_ms
+    ) const;
+private:
+    [[nodiscard]] static std::uint64_t nowMillis();
+    [[nodiscard]] std::shared_ptr<const BlacklistSnapshot>
+        currentSnapshot() const noexcept;
+
+    std::shared_ptr<const BlacklistSnapshot> snapshot_;
+    mutable std::mutex publish_mutex_;
+};
+
+}  // 命名空间 aegisflow::risk

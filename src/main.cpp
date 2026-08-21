@@ -1,205 +1,125 @@
-#include <cstddef>
-#include <cstdint>
-#include <exception>
-#include <iostream>
-#include <string>
-
-#include "aegisflow/app/risk_service.hpp"
+#include "aegisflow/app/handler.hpp"
+#include "aegisflow/app/process_signal_waiter.hpp"
 #include "aegisflow/config/config.hpp"
 #include "aegisflow/log/logger.hpp"
-#include "aegisflow/net/http_server.hpp"
-#include "aegisflow/risk/blacklist_manager.hpp"
-#include "aegisflow/storage/mysql_dao.hpp"
-#include "aegisflow/storage/redis_client.hpp"
+#include "aegisflow/timer/timer.hpp"
 
-#include "decision.pb.h"
-#include "event.pb.h"
+#include <exception>
+#include <iostream>
 
 namespace {
 
-uint16_t readPort(
-    const aegisflow::config::Config& config,
-    const std::string& key,
-    uint16_t default_value
+bool startRuntime(
+    const aegisflow::config::AppConfig& config,
+    aegisflow::log::Logger& logger,
+    aegisflow::timer::Timer& timer,
+    aegisflow::app::Handler& handler
 ) {
-    const int value = config.getInt(key, default_value);
-    if (value <= 0 || value > 65535) {
-        return default_value;
+    if (logger.init(config.logger) != aegisflow::log::LoggerStatus::Ok ||
+        logger.start() != aegisflow::log::LoggerStatus::Ok) {
+        std::cerr << "start Logger failed\n";
+        logger.stop();
+        (void)logger.join();
+        return false;
+    }
+    AEGISFLOW_LOG_INFO("Logger started");
+
+    if (timer.init(config.timer) != aegisflow::timer::TimerStatus::Ok ||
+        timer.start() != aegisflow::timer::TimerStatus::Ok) {
+        AEGISFLOW_LOG_ERROR("start Timer failed");
+        timer.stop();
+        (void)timer.join();
+        logger.stop();
+        (void)logger.join();
+        return false;
+    }
+    AEGISFLOW_LOG_INFO("Timer started");
+
+    if (handler.init(config.handler) != aegisflow::app::HandlerStatus::Ok ||
+        handler.start() != aegisflow::app::HandlerStatus::Ok) {
+        AEGISFLOW_LOG_ERROR("start Handler failed");
+        handler.stop();
+        (void)handler.join();
+        timer.stop();
+        (void)timer.join();
+        logger.stop();
+        (void)logger.join();
+        return false;
+    }
+    AEGISFLOW_LOG_INFO("Handler started");
+    return true;
+}
+
+bool stopRuntime(
+    aegisflow::log::Logger& logger,
+    aegisflow::timer::Timer& timer,
+    aegisflow::app::Handler& handler
+) noexcept {
+    handler.stop();
+    const bool handler_ok =
+        handler.join() == aegisflow::app::HandlerStatus::Ok;
+    if (handler_ok) {
+        AEGISFLOW_LOG_INFO("Handler stopped");
+    } else {
+        AEGISFLOW_LOG_ERROR("stop Handler failed");
     }
 
-    return static_cast<uint16_t>(value);
-}
-
-unsigned int readUnsignedInt(
-    const aegisflow::config::Config& config,
-    const std::string& key,
-    unsigned int default_value
-) {
-    const int value = config.getInt(key, static_cast<int>(default_value));
-    if (value < 0) {
-        return default_value;
+    timer.stop();
+    const bool timer_ok = timer.join() == aegisflow::timer::TimerStatus::Ok;
+    if (timer_ok) {
+        AEGISFLOW_LOG_INFO("Timer stopped");
+    } else {
+        AEGISFLOW_LOG_ERROR("stop Timer failed");
     }
 
-    return static_cast<unsigned int>(value);
+    logger.stop();
+    const bool logger_ok =
+        logger.join() == aegisflow::log::LoggerStatus::Ok;
+    if (!logger_ok) {
+        std::cerr << "stop Logger failed\n";
+    }
+    return handler_ok && timer_ok && logger_ok;
 }
 
-aegisflow::storage::MysqlConfig buildMysqlConfig(
-    const aegisflow::config::Config& config
-) {
-    aegisflow::storage::MysqlConfig mysql_config;
+}  // 命名空间
 
-    mysql_config.host = config.getString("mysql.host", mysql_config.host);
-    mysql_config.port = readPort(config, "mysql.port", mysql_config.port);
-    mysql_config.user = config.getString("mysql.user", mysql_config.user);
-    mysql_config.password = config.getString("mysql.password", mysql_config.password);
-    mysql_config.database = config.getString("mysql.database", mysql_config.database);
-    mysql_config.charset = config.getString("mysql.charset", mysql_config.charset);
-    mysql_config.connect_timeout_sec = readUnsignedInt(
-        config,
-        "mysql.connect_timeout_sec",
-        mysql_config.connect_timeout_sec
-    );
-    mysql_config.read_timeout_sec = readUnsignedInt(
-        config,
-        "mysql.read_timeout_sec",
-        mysql_config.read_timeout_sec
-    );
-    mysql_config.write_timeout_sec = readUnsignedInt(
-        config,
-        "mysql.write_timeout_sec",
-        mysql_config.write_timeout_sec
-    );
-
-    return mysql_config;
-}
-
-aegisflow::storage::RedisConfig buildRedisConfig(
-    const aegisflow::config::Config& config
-) {
-    aegisflow::storage::RedisConfig redis_config;
-
-    redis_config.host = config.getString("redis.host", redis_config.host);
-    redis_config.port = readPort(config, "redis.port", redis_config.port);
-    redis_config.password = config.getString("redis.password", redis_config.password);
-    redis_config.timeout_ms = readUnsignedInt(
-        config,
-        "redis.timeout_ms",
-        redis_config.timeout_ms
-    );
-
-    return redis_config;
-}
-
-aegisflow::risk::BlacklistManagerOptions buildBlacklistOptions(
-    const aegisflow::config::Config& config
-) {
-    aegisflow::risk::BlacklistManagerOptions options;
-
-    options.bloom_bits = static_cast<size_t>(
-        config.getUInt64("blacklist.bloom_bits", options.bloom_bits)
-    );
-    options.bloom_hashes = static_cast<size_t>(
-        config.getUInt64("blacklist.bloom_hashes", options.bloom_hashes)
-    );
-    options.cache_capacity = static_cast<size_t>(
-        config.getUInt64("blacklist.cache_capacity", options.cache_capacity)
-    );
-    options.negative_ttl_ms = config.getUInt64(
-        "blacklist.negative_ttl_ms",
-        options.negative_ttl_ms
-    );
-    options.positive_ttl_ms = config.getUInt64(
-        "blacklist.positive_ttl_ms",
-        options.positive_ttl_ms
-    );
-
-    return options;
-}
-
-} // namespace
-
-int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: AegisFlow <config_file>" << std::endl;
+int main(const int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: AegisFlow <config_file>\n";
         return 1;
     }
-
-    aegisflow::config::Config config_;
-    if (!config_.loadFromFile(argv[1])) {
-        std::cerr << "load config failed" << std::endl;
-        return 1;
-    }
-
-    aegisflow::log::Logger::instance().init(
-        aegisflow::log::Logger::instance().stringToLogLevel(
-            config_.getString("log.level", "INFO")
-        ),
-        config_.getString("log.file", "logs/log.log")
-    );
 
     try {
-        const std::string rule_file =
-            config_.getString("rule.file", "config/rules.dsl");
-
-        aegisflow::storage::MysqlDao mysql_dao(buildMysqlConfig(config_));
-        aegisflow::storage::RedisClient redis_client(buildRedisConfig(config_));
-
-        if (redis_client.connect()) {
-            LOG_INFO("redis connected");
-        } else {
-            LOG_WARN("redis connect failed: " + redis_client.lastError());
+        const auto config = aegisflow::config::loadAppConfig(argv[1]);
+        auto& logger = aegisflow::log::Logger::instance();
+        auto& timer = aegisflow::timer::Timer::instance();
+        auto& handler = aegisflow::app::Handler::instance();
+        aegisflow::app::ProcessSignalWaiter signal_waiter;
+        if (!signal_waiter.blockTerminationSignals()) {
+            std::cerr << "block termination signals failed\n";
+            return 1;
+        }
+        if (!startRuntime(config, logger, timer, handler)) {
+            return 1;
         }
 
-        aegisflow::risk::BlacklistManager blacklist_manager(
-            &mysql_dao,
-            &redis_client,
-            buildBlacklistOptions(config_)
-        );
-
-        if (mysql_dao.connect()) {
-            if (blacklist_manager.loadFromMysql()) {
-                LOG_INFO(
-                    "loaded blacklist entries: " +
-                    std::to_string(blacklist_manager.localSize())
-                );
-            } else {
-                LOG_WARN("load blacklist from mysql failed: " + mysql_dao.lastError());
-            }
-        } else {
-            LOG_WARN("mysql connect failed: " + mysql_dao.lastError());
+        int exit_code = 0;
+        const auto signal_result = signal_waiter.wait();
+        if (!signal_result.ok) {
+            AEGISFLOW_LOG_ERROR("wait termination signal failed");
+            exit_code = 1;
         }
-
-        aegisflow::app::RiskService risk_service_(
-            config_.getInt("worker_pool.threads", 0),
-            rule_file,
-            &blacklist_manager
-        );
-
-        aegisflow::net::HttpServer http_server(
-            config_.getString(
-                "http_server.host",
-                config_.getString("server.host", "0.0.0.0")
-            ),
-            config_.getInt(
-                "http_server.port",
-                config_.getInt("server.port", 8080)
-            ),
-            config_.getInt(
-                "http_server.io_threads",
-                config_.getInt("server.io_threads", 1)
-            ),
-            config_.getUInt64(
-                "http_server.max_body_size",
-                config_.getUInt64("server.max_body_size", 1024 * 1024)
-            ),
-            risk_service_
-        );
-
-        http_server.run();
-    } catch (const std::exception& e) {
-        std::cerr << "start AegisFlow failed: " << e.what() << std::endl;
+        if (handler.state() == aegisflow::app::HandlerState::Failed) {
+            AEGISFLOW_LOG_ERROR("Handler entered failed state");
+            exit_code = 1;
+        }
+        if (!stopRuntime(logger, timer, handler)) {
+            std::cerr << "stop runtime failed\n";
+            exit_code = 1;
+        }
+        return exit_code;
+    } catch (const std::exception& error) {
+        std::cerr << "configure AegisFlow failed: " << error.what() << '\n';
         return 1;
     }
-
-    return 0;
 }

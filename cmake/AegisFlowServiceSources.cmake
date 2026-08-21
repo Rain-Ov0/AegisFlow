@@ -1,0 +1,34 @@
+set(AEGISFLOW_SERVICE_SOURCES
+    src/app/blacklist_cache_bootstrap.cpp
+    src/app/blacklist_candidate_queue.cpp
+    src/app/blacklist_maintenance.cpp
+    src/app/blacklist_maintenance_backend.cpp
+    src/app/feature_state_maintenance.cpp
+    src/app/handler.cpp
+    src/app/login_request_validator.cpp
+    src/app/process_signal_waiter.cpp
+    src/app/risk_service.cpp
+    src/config/config.cpp
+    src/domain/ip_address.cpp
+    src/feature/feature_store.cpp
+    src/log/logger.cpp
+    src/net/acceptor_loop.cpp
+    src/net/completion_router.cpp
+    src/net/event_loop.cpp
+    src/net/event_loop_group.cpp
+    src/net/length_prefixed_codec.cpp
+    src/net/login_business_handler.cpp
+    src/net/loop_mailbox.cpp
+    src/net/session.cpp
+    src/risk/blacklist_manager.cpp
+    src/risk/blacklist_candidate_generator.cpp
+    src/risk/blacklist_mutation.cpp
+    src/risk/blacklist_snapshot.cpp
+    src/risk/login_policy_chain.cpp
+    src/runtime/bounded_worker_pool.cpp
+    src/storage/mysql_dao.cpp
+    src/storage/blacklist_redis_store.cpp
+    src/storage/redis_connection.cpp
+    src/timer/timer.cpp
+    src/timer/timer_core.cpp
+)

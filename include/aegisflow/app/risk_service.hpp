@@ -1,15 +1,12 @@
 #pragma once
 
+#include "aegisflow/domain/login.hpp"
 #include "aegisflow/feature/feature_store.hpp"
-#include "aegisflow/rule/decision_aggregator.hpp"
-#include "aegisflow/rule/rule_engine.hpp"
-#include "aegisflow/runtime/worker_pool.hpp"
-#include "decision.pb.h"
-#include "event.pb.h"
+#include "aegisflow/risk/blacklist_candidate_generator.hpp"
+#include "aegisflow/risk/login_policy_chain.hpp"
+#include "aegisflow/risk/risk_evaluation.hpp"
 
-#include <cstddef>
 #include <memory>
-#include <string>
 
 namespace aegisflow::risk {
 class BlacklistManager;
@@ -20,24 +17,26 @@ namespace aegisflow::app {
 class RiskService {
 public:
     explicit RiskService(
-        size_t worker_num = 0,
-        std::string rule_file = "config/rules.dsl",
-        aegisflow::risk::BlacklistManager* blacklist_manager = nullptr
+        aegisflow::risk::LoginPolicyConfig policy_config = {},
+        const aegisflow::risk::BlacklistManager* blacklist_manager = nullptr,
+        aegisflow::feature::FeatureStateReclamationConfig
+            reclamation_config = {}
     );
 
-    aegisflow::v1::ReportEventResponse handleEvent(
-        const aegisflow::v1::ReportEventRequest& request
+    [[nodiscard]] aegisflow::risk::RiskEvaluation evaluate(
+        const aegisflow::domain::LoginAttempt& attempt
     );
+
+    [[nodiscard]] aegisflow::feature::LoginFeatureStore& featureStore(
+    ) const noexcept {
+        return *feature_store_;
+    }
 
 private:
-    std::shared_ptr<const aegisflow::rule::RuleSet> rule_set_;
-    aegisflow::rule::RuleEngine rule_engine_;
-    aegisflow::rule::DecisionAggregator decision_aggregator_;
-
-    aegisflow::risk::BlacklistManager* blacklist_manager_ = nullptr;
-
-    aegisflow::feature::FeatureStore feature_store_;
-    aegisflow::runtime::WorkerPool worker_pool_;
+    aegisflow::risk::LoginPolicyChain policy_chain_;
+    aegisflow::risk::BlacklistCandidateGenerator candidate_generator_;
+    const aegisflow::risk::BlacklistManager* blacklist_manager_ = nullptr;
+    std::shared_ptr<aegisflow::feature::LoginFeatureStore> feature_store_;
 };
 
-} // namespace aegisflow::app
+}  // 命名空间 aegisflow::app

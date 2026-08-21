@@ -1,299 +1,115 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(AegisFlow VERSION 1.0 LANGUAGES CXX)
+project(AegisFlow
+    VERSION 1.0
+    DESCRIPTION "AegisFlow C++实时风控决策引擎"
+    LANGUAGES CXX
+)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(AEGISFLOW_BUILD_PROJECT
+    "Build the AegisFlow service and operational clients" ON)
+option(AEGISFLOW_BUILD_BENCHMARK
+    "Build native load and FeatureStore benchmark clients" OFF)
+option(AEGISFLOW_BUILD_TESTS
+    "Build focused module tests" OFF)
+
+if(NOT AEGISFLOW_BUILD_PROJECT AND
+   NOT AEGISFLOW_BUILD_BENCHMARK AND
+   NOT AEGISFLOW_BUILD_TESTS)
+    message(FATAL_ERROR
+        "No build group selected. Enable AEGISFLOW_BUILD_PROJECT, "
+        "AEGISFLOW_BUILD_BENCHMARK, or AEGISFLOW_BUILD_TESTS."
+    )
+endif()
+
+set(AEGISFLOW_SANITIZER "none" CACHE STRING
+    "Sanitizer instrumentation: none, address, leak, or thread"
+)
+set_property(CACHE AEGISFLOW_SANITIZER PROPERTY STRINGS
+    none address leak thread
+)
+
+set(AEGISFLOW_SUPPORTED_SANITIZERS none address leak thread)
+list(FIND AEGISFLOW_SUPPORTED_SANITIZERS "${AEGISFLOW_SANITIZER}"
+    AEGISFLOW_SANITIZER_INDEX
+)
+if(AEGISFLOW_SANITIZER_INDEX EQUAL -1)
+    message(FATAL_ERROR
+        "Unsupported AEGISFLOW_SANITIZER='${AEGISFLOW_SANITIZER}'. "
+        "Choose one of: none, address, leak, thread."
+    )
+endif()
+
+if(NOT AEGISFLOW_SANITIZER STREQUAL "none")
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR
+            "AEGISFLOW_SANITIZER requires GCC or Clang; found "
+            "'${CMAKE_CXX_COMPILER_ID}'."
+        )
+    endif()
+    if(AEGISFLOW_SANITIZER STREQUAL "address")
+        set(AEGISFLOW_SANITIZER_FLAG "-fsanitize=address,undefined")
+        add_compile_options(-fno-sanitize-recover=all)
+    elseif(AEGISFLOW_SANITIZER STREQUAL "leak")
+        set(AEGISFLOW_SANITIZER_FLAG "-fsanitize=leak")
+    elseif(AEGISFLOW_SANITIZER STREQUAL "thread")
+        set(AEGISFLOW_SANITIZER_FLAG "-fsanitize=thread")
+    endif()
+    add_compile_options("${AEGISFLOW_SANITIZER_FLAG}" -fno-omit-frame-pointer)
+    add_link_options("${AEGISFLOW_SANITIZER_FLAG}")
+    message(STATUS "AegisFlow sanitizer: ${AEGISFLOW_SANITIZER}")
+endif()
 
 find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
 
-find_path(MYSQL_INCLUDE_DIR
-    NAMES mysql.h
-    PATHS
-        /usr/include/mysql
-        /usr/include/mariadb
-        /usr/local/include/mysql
-        /usr/local/include/mariadb
-)
-
-find_library(MYSQLCLIENT_LIBRARY
-    NAMES mysqlclient mariadb
-)
-
-if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQLCLIENT_LIBRARY)
-    message(FATAL_ERROR "MySQL client library not found. Please install libmysqlclient-dev or libmariadb-dev.")
-endif()
-
-find_path(HIREDIS_INCLUDE_DIR
-    NAMES hiredis/hiredis.h
-)
-
-find_library(HIREDIS_LIBRARY
-    NAMES hiredis
-)
-
-if(NOT HIREDIS_INCLUDE_DIR OR NOT HIREDIS_LIBRARY)
-    message(WARNING "hiredis not found. RedisClient will be built as an unavailable fallback.")
-endif()
-
-function(enable_optional_hiredis target)
-    if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
-        target_include_directories(${target} PRIVATE
-            ${HIREDIS_INCLUDE_DIR}
-        )
-
-        target_link_libraries(${target} PRIVATE
-            ${HIREDIS_LIBRARY}
-        )
-
-        target_compile_definitions(${target} PRIVATE
-            AEGISFLOW_USE_HIREDIS
-        )
-    endif()
-endfunction()
-
-set(PROTO_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/proto/event.proto
-    ${CMAKE_CURRENT_SOURCE_DIR}/proto/decision.proto
-)
-
+set(PROTO_FILES ${CMAKE_CURRENT_SOURCE_DIR}/proto/login.proto)
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 
-add_executable(AegisFlow
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/log/logger.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/config/config.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/net/http_server.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/risk_service.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/worker_pool.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/redis_client.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
+add_library(aegisflow_proto STATIC ${PROTO_SRCS} ${PROTO_HDRS})
+target_include_directories(aegisflow_proto PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(aegisflow_proto PUBLIC protobuf::libprotobuf)
 
-target_include_directories(AegisFlow PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/
-    ${MYSQL_INCLUDE_DIR}
-)
-
-target_link_libraries(AegisFlow PRIVATE
-    protobuf::libprotobuf
-    ${MYSQLCLIENT_LIBRARY}
-)
-
-enable_optional_hiredis(AegisFlow)
-
-add_executable(send_event
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/send_event.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-target_include_directories(send_event PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}
-)
-
-target_link_libraries(send_event PRIVATE
-    protobuf::libprotobuf
-)
-
-add_executable(benchmark_feature_store
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_feature_store.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-target_include_directories(benchmark_feature_store PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/
-)
-
-target_link_libraries(benchmark_feature_store PRIVATE
-    protobuf::libprotobuf
-)
-
-add_executable(benchmark_http
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_http.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-target_include_directories(benchmark_http PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}
-)
-
-target_link_libraries(benchmark_http PRIVATE
-    protobuf::libprotobuf
-    Threads::Threads
-)
-
-enable_testing()
-
-function(add_aegisflow_test target)
-    add_executable(${target} ${ARGN})
-
-    target_include_directories(${target} PRIVATE
-        ${CMAKE_CURRENT_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/
+if(AEGISFLOW_BUILD_PROJECT OR AEGISFLOW_BUILD_TESTS)
+    find_path(MYSQL_INCLUDE_DIR
+        NAMES mysql.h
+        PATHS
+            /usr/include/mysql
+            /usr/include/mariadb
+            /usr/local/include/mysql
+            /usr/local/include/mariadb
     )
+    find_library(MYSQLCLIENT_LIBRARY NAMES mysqlclient mariadb)
+    if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQLCLIENT_LIBRARY)
+        message(FATAL_ERROR
+            "MySQL client library not found. Install libmysqlclient-dev or "
+            "libmariadb-dev."
+        )
+    endif()
 
-    target_link_libraries(${target} PRIVATE
-        protobuf::libprotobuf
-    )
+    find_path(HIREDIS_INCLUDE_DIR NAMES hiredis/hiredis.h)
+    find_library(HIREDIS_LIBRARY NAMES hiredis)
+    if(NOT HIREDIS_INCLUDE_DIR OR NOT HIREDIS_LIBRARY)
+        message(FATAL_ERROR
+            "hiredis is required. Install libhiredis-dev."
+        )
+    endif()
 
-    add_test(NAME ${target} COMMAND ${target})
-endfunction()
+    include(cmake/AegisFlowServiceSources.cmake)
+endif()
 
-add_aegisflow_test(test_sliding_counter
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sliding_counter.cpp
-)
+if(AEGISFLOW_BUILD_PROJECT)
+    include(cmake/AegisFlowProject.cmake)
+endif()
 
-add_aegisflow_test(test_recent_action_window
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_recent_action_window.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
+if(AEGISFLOW_BUILD_BENCHMARK OR AEGISFLOW_BUILD_TESTS)
+    include(cmake/AegisFlowBenchmark.cmake)
+endif()
 
-add_aegisflow_test(test_user_state
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_user_state.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-add_aegisflow_test(test_feature_store
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_feature_store.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-add_aegisflow_test(test_sliding_distinct
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sliding_distinct.cpp
-)
-
-add_aegisflow_test(test_count_min_sketch
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_count_min_sketch.cpp
-)
-
-add_aegisflow_test(test_space_saving_topk
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_space_saving_topk.cpp
-)
-
-add_aegisflow_test(test_bloom_filter
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bloom_filter.cpp
-)
-
-add_aegisflow_test(test_feature_store_ip_device
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_feature_store_ip_device.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-add_aegisflow_test(test_feature_store_attack_flow
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_feature_store_attack_flow.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-add_aegisflow_test(test_rule_lexer
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_lexer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
-)
-
-add_aegisflow_test(test_rule_parser
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_parser.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
-)
-
-add_aegisflow_test(test_rule_engine
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_engine.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-add_aegisflow_test(test_decision_aggregator
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_decision_aggregator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
-)
-
-add_aegisflow_test(test_risk_service_integration
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_risk_service_integration.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/risk_service.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/feature/feature_store.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/worker_pool.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_engine.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/decision_aggregator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/redis_client.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-target_compile_definitions(test_risk_service_integration PRIVATE
-    AEGISFLOW_TEST_RULE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/config/rules.dsl"
-)
-
-target_include_directories(test_risk_service_integration PRIVATE
-    ${MYSQL_INCLUDE_DIR}
-)
-
-target_link_libraries(test_risk_service_integration PRIVATE
-    ${MYSQLCLIENT_LIBRARY}
-)
-
-enable_optional_hiredis(test_risk_service_integration)
-
-add_aegisflow_test(test_rule_validator
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rule_validator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_lexer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_parser.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/rule/rule_validator.cpp
-)
-
-add_aegisflow_test(test_lru_cache
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_lru_cache.cpp
-)
-
-add_aegisflow_test(test_ttl_cache
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ttl_cache.cpp
-)
-
-add_aegisflow_test(test_blacklist_manager
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blacklist_manager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/risk/blacklist_manager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/mysql_dao.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/storage/redis_client.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
-)
-
-target_include_directories(test_blacklist_manager PRIVATE
-    ${MYSQL_INCLUDE_DIR}
-)
-
-target_link_libraries(test_blacklist_manager PRIVATE
-    ${MYSQLCLIENT_LIBRARY}
-)
-
-enable_optional_hiredis(test_blacklist_manager)
+if(AEGISFLOW_BUILD_TESTS)
+    include(cmake/AegisFlowTests.cmake)
+endif()
