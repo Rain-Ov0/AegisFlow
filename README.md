@@ -50,7 +50,7 @@ cmake --build /tmp/aegisflow-project --target AegisFlow --parallel
 | project | `AegisFlow` | 实时风控决策服务 |
 | project | `send_event` | 单请求协议客户端 |
 | project | `manage_blacklist` | 黑名单 add、disable、clear 管理工具 |
-| benchmark | `benchmark_native` | TCP + Protobuf 端到端压测客户端 |
+| benchmark | `benchmark_native` | 4 字节长度前缀 + Protobuf 字节流端到端压测客户端 |
 | benchmark | `benchmark_feature_store` | FeatureStore 单线程微基准 |
 | tests | `test_*` | 25 个按模块拆分的测试 target |
 
@@ -111,7 +111,7 @@ Logger 拥有有界记录队列、日志线程和文件 sink；生产者只入�
 
 ![Timer 单例架构](docs/images/aegisflow-timer-architecture.png)
 
-Timer 拥有有界命令队列、deadline heap、`eventfd`、`timerfd`、`epoll` 和一条 timer thread；它只向 sink 投递 `TimerEvent` 值，不执行维护工作。
+Timer 拥有有界调度命令队列、deadline heap、reservation 表、`eventfd`、`timerfd`、`epoll` 和一条 timer thread。`scheduleAt()` 通过命令队列入堆；`cancel()` 在 TimerCore 锁内立即释放 reservation 并唤醒 worker，heap 中的旧节点再惰性跳过，因此取消不占用命令容量，也不会让长 idle deadline 长期占用 timer 容量。Timer 只向 sink 投递 `TimerEvent` 值，不执行维护工作。
 
 ### Handler 单例
 
@@ -306,22 +306,119 @@ decoded_responses = status_ok + status_overloaded + status_timeout
 status_ok = action_pass + action_review + action_reject
 ```
 
+### 容量压测方案
+
+容量数据的口径是“本机环回端到端”：服务进程、`benchmark_native`、Redis 和 MySQL 位于同一台虚拟机，请求经过完整的 TCP 字节流上的 4 字节大端长度前缀、Protobuf 解码、风控计算和响应回包链路。数据可用于说明该部署条件下的端到端能力，不等同于独立压测机下的服务端极限。
+
+| 项目 | 参数 |
+|---|---|
+| 数据日期 | 2026-08-23 |
+| 虚拟化与系统 | VMware，Linux 6.14.0-37-generic x86_64 |
+| CPU | 10 个在线 vCPU，AMD Ryzen 5 7530U，每核 1 线程 |
+| 内存 | 15.6 GiB |
+| 服务参数 | 2 条 I/O 线程，8 条 business worker，business queue 1024，最大连接数 65536，business timeout 2000 ms，INFO 日志 |
+| 外部依赖 | 同机独立 Redis/MySQL 实例，不与日常开发库共用 key prefix 或数据 |
+| 协议 | 4 字节大端 payload 长度 + Protobuf `LoginRequest/LoginResponse` |
+
+稳态基线使用固定目标速率，而不使用 `target_qps=0` 的不限速突发。`request_concurrency` 是最大同时在途请求数，`connection_pool_size` 是长连接池大小；steady 测量将 `requests_per_connection` 设为 100 万，保证计量期间没有计划内换连。用户/IP/设备基数分别为 100000/1000/5000，同一轮内复用实体窗口，不随请求数无界增长。
+
+每个容量档位按以下顺序执行：
+
+1. 以专用 Redis/MySQL 和新的服务进程开始该档位，避免上一档的 FeatureStore 状态影响边界判断。
+2. 调用 `manage_blacklist clear --all --wait --confirm benchmark-reset`，等待 business inflight、candidate queue、Redis、MySQL 和内存快照全部收敛。
+3. 先预热 5 秒，再计量 60 秒；边界搜索可先用 15 秒短轮次，确认达标后必须回到 60 秒复验。
+4. 稳态档位要求三条请求记账等式成立，`failed_requests/status_overloaded/status_timeout/planned_reconnects` 全为 0，且实测 QPS 不低于目标的 99%。
+5. 同时检查 P50/P95/P99/max、`schedule_lag_p95_us`、服务日志与 reset 收敛。失败数为 0 但调度滞后持续增长时，仍判定为未维持目标速率。
+
+steady 只验证长连接稳态链路；attack、churn、overload 和 deadline 分开执行，避免把攻击规则、主动换连或故意过载混入稳态 QPS 口径。
+
+### 已验证数据
+
+1 万 QPS 稳态档位的完整单轮结果如下：
+
+| 指标 | 结果 |
+|---|---:|
+| 负载参数 | 24 在途请求 / 64 长连接 / 每连接 100 万次请求上限 |
+| 预热 | 5 秒，50000 请求，失败 0 |
+| 计量 | 配置 60 秒，实际 60.025989 秒，期望/发出/解码响应均为 600000 |
+| 实测 QPS | **9995.670** |
+| 平均延迟 | 761.327 µs |
+| P50 / P95 / P99 | 470 µs / 2190 µs / **3466 µs** |
+| 最大延迟 | 131573 µs |
+| 发包调度滞后 P95 | 11242 µs |
+| 连接 | 64 次尝试、64 次建立，计划内重连 0 |
+| 失败/过载/超时 | 0 / 0 / 0 |
+| 结论 | **本机环回端到端 1 万 QPS 稳态档位通过** |
+
+容量边界探测均没有请求失败或计划内重连，但高档位出现了持续调度滞后：
+
+| 目标 QPS | 在途/连接 | 配置 duration | 实际计时 | 解码响应 | 实测 QPS | P99 | 调度滞后 P95 | 判定 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 10000 | 24 / 64 | 60 s | 60.025989 s | 600000 | 9995.670 | 3.466 ms | 11.242 ms | 稳态达标 |
+| 15000 | 32 / 64 | 15 s | 15.017426 s | 225000 | 14982.594 | 3.413 ms | 18.003 ms | 短时达标 |
+| 15000 | 32 / 64 | 60 s | 68.287019 s | 900000 | 13179.664 | 4.783 ms | 7725.009 ms | 长时未维持目标速率 |
+| 16000 | 40 / 64 | 15 s | 19.099621 s | 240000 | 12565.694 | 6.247 ms | 3757.975 ms | 未达标 |
+| 20000 | 48 / 96 | 15 s | 19.318172 s | 300000 | 15529.420 | 5.646 ms | 4070.949 ms | 未达标 |
+| 20000 | 96 / 128 | 15 s | 21.168659 s | 300000 | 14171.894 | 11.723 ms | 5853.264 ms | 提高在途上限后排队加重 |
+
+因此，当前可辩护的稳态数据是 **9995.670 QPS，P99 3.466 ms，60 万请求失败率 0**。14982.594 QPS 只表示 15 秒短时峰值，不作为 60 秒稳态能力。1.5 万以上的未达标数据还同时受同机压测端和外部依赖资源竞争影响；要得到服务端独立容量，需将负载生成器迁到独立机器后重复相同阶梯。
+
+### 复现 1 万 QPS 稳态口径
+
+先启动使用专用 Redis/MySQL 的服务进程。下列命令使用默认 `8080` 端口；如果容量配置使用其他端口，必须同时修改 `--port`。每次运行都应更换 `entity-prefix`。
+
+```bash
+PROJECT_BUILD_DIR=/tmp/aegisflow-build-$UID/project-release
+BENCHMARK_BUILD_DIR=/tmp/aegisflow-build-$UID/benchmark-release
+
+"$PROJECT_BUILD_DIR/manage_blacklist" \
+  --config config/server.conf \
+  clear --all --wait --confirm benchmark-reset
+
+"$BENCHMARK_BUILD_DIR/benchmark_native" \
+  --config config/benchmark_native.conf \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --request-concurrency 24 \
+  --connection-pool-size 64 \
+  --requests-per-connection 1000000 \
+  --target-qps 10000 \
+  --warmup-ms 5000 \
+  --duration-ms 60000 \
+  --connect-timeout-ms 1000 \
+  --request-timeout-ms 3000 \
+  --seed 20260823 \
+  --attack-ratio 0 \
+  --entity-prefix cap10k-20260823-01
+```
+
+`benchmark_native` 返回 0 只表示请求记账一致且 `failed_requests=0`；是否达到目标 QPS 还必须按上述 99% 阈值和调度滞后单独判定。
+
+### 多轮与多场景回归
+
 完整入口是 `scripts/pressure_test.sh`。它运行 smoke、steady、attack、churn、overload、deadline 六类场景，每类至少三轮；每轮在 warmup 前执行一次：
 
 ```text
 manage_blacklist clear --all --wait --confirm benchmark-reset
 ```
 
-reset 失败会立即中止该轮，不发送 warmup 或 measurement。每轮生成新的 `entity_prefix` 与 IPv6 `attack_ip`；脚本在内存中保存本进程的摘要并打印 QPS、P50、P95、P99、max 中位数。
+reset 失败会立即中止该轮，不发送 warmup 或 measurement。每轮生成新的 `entity_prefix` 与 IPv6 `attack_ip`；脚本在内存中保存本进程的摘要并打印 QPS、P50、P95、P99、max 中位数。steady/attack 默认每连接允许 100 万次请求，避免在计量阶段主动换连；连接 churn 只由 churn 场景单独验证。benchmark 非零退出时，脚本先保留其单行失败分类摘要，再终止后续轮次。
 
 ```bash
 PROJECT_BUILD_DIR=/tmp/aegisflow-build-$UID/project-release \
 BENCHMARK_BUILD_DIR=/tmp/aegisflow-build-$UID/benchmark-release \
 RESET_CONFIG=config/server.conf \
 ROUNDS=3 \
-SCENARIOS=smoke,steady,attack,churn \
+SCENARIOS=steady \
+STEADY_CONCURRENCY=24 \
+STEADY_CONNECTIONS=64 \
+STEADY_QPS=10000 \
+STEADY_DURATION_MS=60000 \
+STEADY_REQUESTS_PER_CONNECTION=1000000 \
   ./scripts/pressure_test.sh
 ```
+
+该脚本的 steady 场景当前使用 1 秒 warmup；上表的 60 秒单轮数据使用 5 秒 warmup，因此两者的结果应分别记录，不直接混算中位数。完成 steady 回归后，再按测试目的将 `SCENARIOS` 扩展为 `attack,churn`；overload 与 deadline 需要下文所述的专用服务配置。
 
 `RESET_BIN` 默认为 `${PROJECT_BUILD_DIR}/manage_blacklist`，`BENCHMARK_BIN` 默认为 `${BENCHMARK_BUILD_DIR}/benchmark_native`。两个目录默认来自不同构建组；也可直接覆盖两个可执行文件变量。`RESET_CONFIG` 非空时脚本在 clear 前传入 `--config "$RESET_CONFIG"`；为空时管理工具使用 `config/server.conf`。`BENCHMARK_CONFIG` 默认为 `config/benchmark_native.conf`。脚本运行期间应独占服务流量，避免 barrier ack 与 CLEAR_ALL 之间插入新业务。直接调用 `benchmark_native` 不访问 Redis/MySQL，也不执行复位。
 
@@ -360,6 +457,7 @@ blacklist_candidate_queue
 login_business_handler
 sliding_window
 feature_store
+feature_state_maintenance
 benchmark_metrics
 async_logger
 mysql_blacklist

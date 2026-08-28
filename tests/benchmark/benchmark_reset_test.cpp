@@ -85,9 +85,15 @@ int runPressure(
     const std::filesystem::path& reset,
     const std::filesystem::path& benchmark,
     const std::filesystem::path& trace,
-    const std::string& scenarios = "smoke"
+    const std::string& scenarios = "smoke",
+    const std::string& extra_environment = {},
+    const std::filesystem::path& output = {}
 ) {
-    const std::string command =
+    std::string command = "env -u STEADY_REQUESTS_PER_CONNECTION ";
+    if (!extra_environment.empty()) {
+        command += extra_environment + " ";
+    }
+    command +=
         "TRACE_FILE=" + shellQuote(trace.string()) +
         " RESET_BIN=" + shellQuote(reset.string()) +
         " BENCHMARK_BIN=" + shellQuote(benchmark.string()) +
@@ -95,6 +101,9 @@ int runPressure(
         " ROUNDS=3 SCENARIOS=" + shellQuote(scenarios) +
         " RUN_TOKEN=reset-test "
         "bash " + shellQuote(pressure_script.string());
+    if (!output.empty()) {
+        command += " >" + shellQuote(output.string()) + " 2>&1";
+    }
     return std::system(command.c_str());
 }
 
@@ -223,6 +232,134 @@ void everyRoundResetsFirstAndUsesUniqueEntities(
     require(attack_ips.size() == 3, "每轮 attack_ip 必须不同");
 }
 
+void steadyAndAttackUseConfiguredConnectionBudget(
+    const std::filesystem::path& pressure_script,
+    const std::filesystem::path& config
+) {
+    TempDirectory fixture;
+    const auto reset = fixture.path() / "reset";
+    const auto benchmark = fixture.path() / "benchmark";
+    const auto default_trace = fixture.path() / "default-trace";
+    const auto override_trace = fixture.path() / "override-trace";
+    writeExecutable(
+        reset,
+        "#!/usr/bin/env bash\n"
+        "printf 'reset\\n' >> \"${TRACE_FILE}\"\n"
+    );
+    writeExecutable(
+        benchmark,
+        "#!/usr/bin/env bash\n"
+        "requests_per_connection=''\n"
+        "entity=''\n"
+        "attack_ip=''\n"
+        "while (($#)); do\n"
+        "  case \"$1\" in\n"
+        "    --requests-per-connection) requests_per_connection=\"$2\"; shift 2 ;;\n"
+        "    --entity-prefix) entity=\"$2\"; shift 2 ;;\n"
+        "    --attack-ip) attack_ip=\"$2\"; shift 2 ;;\n"
+        "    *) shift ;;\n"
+        "  esac\n"
+        "done\n"
+        "printf 'benchmark requests_per_connection=%s\\n' \"${requests_per_connection}\" >> \"${TRACE_FILE}\"\n"
+        "printf '%s\\n' \"expected_requests=1 issued_requests=1 decoded_responses=1 failed_requests=0 status_ok=1 status_overloaded=0 status_timeout=0 action_pass=0 action_review=1 action_reject=0 policy_blacklisted_user=0 policy_blacklisted_ip=0 policy_blacklisted_device=0 policy_credential_stuffing_attack=1 policy_too_many_failed_login=0 policy_ip_many_users_failed_login=0 policy_device_many_accounts=0 policy_other=0 failure_connect=0 failure_connect_timeout=0 failure_send=0 failure_read=0 failure_peer_closed=0 failure_protocol=0 failure_parse=0 failure_mismatch=0 failure_request_timeout=0 failure_internal=0 qps=1.000 p50_us=10 p95_us=10 p99_us=10 max_us=10 measurement_us=1000000 planned_reconnects=0 entity_prefix=${entity} attack_ip=${attack_ip}\"\n"
+    );
+
+    require(
+        runPressure(
+            pressure_script,
+            config,
+            reset,
+            benchmark,
+            default_trace,
+            "steady,attack"
+        ) == 0,
+        "steady/attack 默认长连接请求预算应当通过脚本验证"
+    );
+    const auto default_lines = readLines(default_trace);
+    require(default_lines.size() == 12, "两个场景的三轮必须各执行 reset 和 benchmark");
+    for (std::size_t index = 1; index < default_lines.size(); index += 2) {
+        require(
+            default_lines[index] ==
+                "benchmark requests_per_connection=1000000",
+            "steady/attack 必须默认使用足够大的长连接请求预算"
+        );
+    }
+
+    require(
+        runPressure(
+            pressure_script,
+            config,
+            reset,
+            benchmark,
+            override_trace,
+            "steady",
+            "STEADY_REQUESTS_PER_CONNECTION=424242"
+        ) == 0,
+        "steady 长连接请求预算必须允许显式覆盖"
+    );
+    const auto override_lines = readLines(override_trace);
+    require(override_lines.size() == 6, "steady 三轮必须各执行 reset 和 benchmark");
+    for (std::size_t index = 1; index < override_lines.size(); index += 2) {
+        require(
+            override_lines[index] ==
+                "benchmark requests_per_connection=424242",
+            "STEADY_REQUESTS_PER_CONNECTION 必须透传给 benchmark"
+        );
+    }
+}
+
+void exitTwoPreservesSingleLineSummary(
+    const std::filesystem::path& pressure_script,
+    const std::filesystem::path& config
+) {
+    TempDirectory fixture;
+    const auto reset = fixture.path() / "reset";
+    const auto benchmark = fixture.path() / "benchmark";
+    const auto trace = fixture.path() / "trace";
+    const auto output = fixture.path() / "output";
+    writeExecutable(
+        reset,
+        "#!/usr/bin/env bash\n"
+        "printf 'reset\\n' >> \"${TRACE_FILE}\"\n"
+    );
+    writeExecutable(
+        benchmark,
+        "#!/usr/bin/env bash\n"
+        "printf 'benchmark\\n' >> \"${TRACE_FILE}\"\n"
+        "printf '%s\\n' 'failed_requests=1 failure_read=1 marker=exit2'\n"
+        "exit 2\n"
+    );
+
+    require(
+        runPressure(
+            pressure_script,
+            config,
+            reset,
+            benchmark,
+            trace,
+            "smoke",
+            {},
+            output
+        ) != 0,
+        "benchmark 退出 2 时 pressure_test 必须失败"
+    );
+    const auto trace_lines = readLines(trace);
+    require(
+        trace_lines.size() == 2 && trace_lines[0] == "reset" &&
+            trace_lines[1] == "benchmark",
+        "benchmark 退出 2 后必须立即终止，不得进入下一轮"
+    );
+    const auto output_lines = readLines(output);
+    require(
+        output_lines.size() == 2 &&
+            output_lines[0] ==
+                "scenario=smoke round=1 failed_requests=1 failure_read=1 marker=exit2" &&
+            output_lines[1] ==
+                "smoke round 1: benchmark 退出码 2",
+        "benchmark 退出 2 时必须先保留单行失败摘要，再报告退出码"
+    );
+}
+
 }  // namespace
 
 int main(const int argc, char* argv[]) {
@@ -250,6 +387,14 @@ int main(const int argc, char* argv[]) {
                  everyRoundResetsFirstAndUsesUniqueEntities(
                      pressure_script, config
                  );
+             }},
+            {"steady/attack 长连接预算", [&] {
+                 steadyAndAttackUseConfiguredConnectionBudget(
+                     pressure_script, config
+                 );
+             }},
+            {"exit 2 保留摘要", [&] {
+                 exitTwoPreservesSingleLineSummary(pressure_script, config);
              }},
         }
     );

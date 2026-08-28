@@ -557,9 +557,6 @@ bool BlacklistMaintenance::tryPost(const timer::TimerEvent event) noexcept {
     active_timer_ = {};
     active_sequence_ = 0;
     const bool scheduled = scheduleNextLocked();
-    if (!scheduled) {
-        running_ = false;
-    }
     if (round_inflight_) {
         // tick 只是“有工作可做”的信号。上一轮未结束时
         // 直接合并，不向有界 maintenance pool 堆积重复任务。
@@ -625,6 +622,12 @@ void BlacklistMaintenance::runRound(
     std::lock_guard lock(mutex_);
     completed_state_ = core_->state();
     round_inflight_ = false;
+    // Timer 瞬时拥塞时，tick 中的下一轮调度可能失败。
+    // 当前 maintenance round 完成后再试一次，避免单次
+    // QueueFull 使周期维护永久停止。
+    if (running_ && !active_timer_.valid()) {
+        static_cast<void>(scheduleNextLocked());
+    }
     if (running_ && round_pending_) {
         // 多个 inflight tick 只折叠成一个 pending bit。当前任务
         // 退出前立即补交一轮，候选不必再等一个完整周期。

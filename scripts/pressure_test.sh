@@ -19,6 +19,7 @@ STEADY_CONCURRENCY="${STEADY_CONCURRENCY:-8}"
 STEADY_CONNECTIONS="${STEADY_CONNECTIONS:-64}"
 STEADY_QPS="${STEADY_QPS:-10000}"
 STEADY_DURATION_MS="${STEADY_DURATION_MS:-10000}"
+STEADY_REQUESTS_PER_CONNECTION="${STEADY_REQUESTS_PER_CONNECTION:-1000000}"
 ATTACK_RATIO="${ATTACK_RATIO:-0.50}"
 OVERLOAD_CONCURRENCY="${OVERLOAD_CONCURRENCY:-256}"
 OVERLOAD_CONNECTIONS="${OVERLOAD_CONNECTIONS:-256}"
@@ -244,6 +245,9 @@ run_scenario() {
         set -e
 
         if ((exit_code != 0)); then
+            if [[ -n "${summary}" && "${summary}" != *$'\n'* ]]; then
+                echo "scenario=${scenario} round=${round} ${summary}"
+            fi
             echo "${scenario} round ${round}: benchmark 退出码 ${exit_code}" >&2
             return "${exit_code}"
         fi
@@ -262,10 +266,11 @@ run_scenario() {
 scenario_enabled smoke && run_scenario smoke "${PORT}" 1 1 20 200 1000 0 1000
 scenario_enabled steady && run_scenario steady "${PORT}" \
     "${STEADY_CONCURRENCY}" "${STEADY_CONNECTIONS}" "${STEADY_QPS}" \
-    1000 "${STEADY_DURATION_MS}" 0 1000
+    1000 "${STEADY_DURATION_MS}" 0 "${STEADY_REQUESTS_PER_CONNECTION}"
 scenario_enabled attack && run_scenario attack "${PORT}" \
     "${STEADY_CONCURRENCY}" "${STEADY_CONNECTIONS}" "${STEADY_QPS}" \
-    1000 "${STEADY_DURATION_MS}" "${ATTACK_RATIO}" 1000
+    1000 "${STEADY_DURATION_MS}" "${ATTACK_RATIO}" \
+    "${STEADY_REQUESTS_PER_CONNECTION}"
 scenario_enabled churn && run_scenario churn "${PORT}" 8 32 1000 500 3000 0 1
 scenario_enabled overload && run_scenario overload "${PORT}" \
     "${OVERLOAD_CONCURRENCY}" "${OVERLOAD_CONNECTIONS}" 0 0 1000 0 20

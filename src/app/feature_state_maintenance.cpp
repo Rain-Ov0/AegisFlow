@@ -111,9 +111,6 @@ bool FeatureStateMaintenance::tryPost(const timer::TimerEvent event) noexcept {
     active_timer_ = {};
     active_sequence_ = 0;
     const bool scheduled = scheduleNextLocked();
-    if (!scheduled) {
-        running_ = false;
-    }
     if (round_inflight_) {
         // 定时 tick 只表示“需要一轮”，已有回收在途时直接合并。
         return true;
@@ -181,6 +178,11 @@ void FeatureStateMaintenance::runRound(
 void FeatureStateMaintenance::finishRound() noexcept {
     std::lock_guard lock(mutex_);
     round_inflight_ = false;
+    // 与黑名单维护一样，tick 重排遇到 Timer 瞬时拥塞时
+    // 不得永久停止。任务结束后由 maintenance worker 补试。
+    if (running_ && !active_timer_.valid()) {
+        static_cast<void>(scheduleNextLocked());
+    }
 }
 
 }  // 命名空间 aegisflow::app

@@ -147,11 +147,11 @@ Logger、Timer、Handler 处于同一所有权层级。三者都使用显式状�
 
 ![Timer 单例的命令、deadline 与值事件投递](images/aegisflow-timer-architecture.png)
 
-`Timer::instance()` 直接拥有 `TimerCore`、有界 command deque、deadline 最小堆、reservation 表、`eventfd`、`timerfd`、`epoll` 和一条 timer thread。任意调用线程通过 `scheduleAt()` 或 `cancel()` 向有界命令队列提交值；`eventfd` 只负责唤醒，timer thread 批量处理命令后把 `timerfd` 重新设置为最近 deadline。
+`Timer::instance()` 直接拥有 `TimerCore`、有界 command deque、deadline 最小堆、reservation 表、`eventfd`、`timerfd`、`epoll` 和一条 timer thread。任意调用线程通过 `scheduleAt()` 预留 TimerId 并提交 schedule 命令；`cancel()` 在 TimerCore 锁内立即删除对应 reservation，再用 `eventfd` 唤醒 timer thread。尚未入堆的 schedule 命令和堆内旧节点都会因 reservation 缺失而惰性跳过，无需额外 cancel 命令。
 
 到期节点只携带 `TimerEvent` 和 `weak_ptr<ITimerSink>`。timer thread 调用 `tryPost()` 把值投递给 owner EventLoop mailbox 或 maintenance task submitter；sink 已销毁时丢弃事件。它不执行 Redis/MySQL I/O，也不扫描 FeatureStore，因此 Logger 的文件线程与 Timer 的调度线程具有同样清晰的单一职责和有界输入。
 
-`command_capacity` 限制尚未处理的 schedule/cancel/stop 命令，`timer_capacity` 限制 reservation 和 heap 中的 live timer。`stop()` 关闭新命令并用 `eventfd` 唤醒 worker；`join()` 防止 self-join，并等待 timer thread 退出后关闭三个 fd。
+`command_capacity` 限制尚未处理的 schedule/stop 命令，`timer_capacity` 限制 live reservation。取消会立即释放 timer 容量，不会等待长 idle deadline 对应的旧 heap 节点到期。`stop()` 关闭新命令并用 `eventfd` 唤醒 worker；`join()` 防止 self-join，并等待 timer thread 退出后关闭三个 fd。
 
 ### 6.3 Handler
 
@@ -210,7 +210,7 @@ maintenance 每次最多从 queued 取 `blacklist.candidate_batch_size` 条放�
 
 ### 7.4 单线程 BlacklistMaintenance
 
-`BlacklistMaintenanceTick` 只提交一项任务。round 在途时，后续 tick 合并为一个 pending bit；当前 round 结束后立即补交一次，不向有界 maintenance pool 堆积重复任务。单 worker 从结构上保证本地 revision、Redis connection 和 MysqlDao 只有一个访问者。
+`BlacklistMaintenanceTick` 只提交一项任务。round 在途时，后续 tick 合并为一个 pending bit；当前 round 结束后立即补交一次，不向有界 maintenance pool 堆积重复任务。tick 重排遇到瞬时 Timer 拥塞时，本轮仍继续执行，round 完成后再补试一次，不因单次 QueueFull 永久停止。单 worker 从结构上保证本地 revision、Redis connection 和 MysqlDao 只有一个访问者。
 
 普通 round 共用一个绝对 deadline，顺序是：
 
@@ -258,7 +258,7 @@ HINCRBY reset_barrier requested 1 -> token
 
 `BoundedWorkerPool::inflightCount()` 从任务成功入队开始递增，在执行完成、异常完成或排队取消时递减，所以第一次 idle 检查不会漏掉尚未开始执行的业务。第二次检查封住候选排空期间重新出现业务的竞态。压力脚本独占服务流量，barrier ack 与 CLEAR_ALL 之间不会插入新请求。
 
-`scripts/pressure_test.sh` 每轮只调用一次 reset，再调用一次 `benchmark_native` 完成 warmup 和 measurement。reset 非零退出会在发流量前中止。`RESET_CONFIG` 非空时传给管理命令；服务使用非默认配置时，它必须指向同一 Redis prefix 和 MySQL database。
+`scripts/pressure_test.sh` 每轮只调用一次 reset，再调用一次 `benchmark_native` 完成 warmup 和 measurement。reset 非零退出会在发流量前中止。steady/attack 默认使用 100 万次/连接的请求预算，不把计量阶段换连混入稳态口径；churn 场景才主动频繁换连。benchmark 非零退出时保留单行失败分类摘要。`RESET_CONFIG` 非空时传给管理命令；服务使用非默认配置时，它必须指向同一 Redis prefix 和 MySQL database。
 
 ## 9. 生命周期
 

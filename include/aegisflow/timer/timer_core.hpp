@@ -172,7 +172,6 @@ private:
 
     enum class CommandKind : std::uint8_t {
         Schedule,
-        Cancel,
         Stop,
     };
 

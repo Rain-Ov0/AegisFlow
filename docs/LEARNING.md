@@ -271,11 +271,11 @@ MySQL `DATETIME(3)` 不携带时区。Dao 连接后设置 `time_zone='+00:00'`�
 
 Timer singleton 用 `timerfd` 等最近 deadline，用 `eventfd` 唤醒跨线程命令，并在一条 timer thread 中维护 heap。Timer thread 不执行 Redis、MySQL 或 FeatureStore 全扫描。
 
-`scheduleAt()` 和 `cancel()` 不直接修改 heap，而是向受 mutex 保护的有界 command deque 提交值，再写 `eventfd`。timer thread 被 `epoll` 唤醒后批量处理命令，清理取消或 generation 不匹配的旧节点，再把 `timerfd` 设置为新的最近 deadline。`command_capacity` 和 `timer_capacity` 分别限制命令积压与 live reservation；这与 Logger 的有界记录队列一样，把过载变成显式返回值。
+`scheduleAt()` 先在 mutex 下创建 live reservation，再向有界 command deque 提交 schedule 命令并写 `eventfd`。`cancel()` 已持有同一把锁，因此直接删除 reservation 并唤醒 worker；它不再竞争 command 容量。timer thread 处理尚未入堆的 schedule 或清理 heap 时，只要 reservation 缺失或 generation 不匹配就跳过旧节点。这个惰性删除不延迟 timer 容量回收：`timer_capacity` 只统计 live reservation，取消立即释放；`command_capacity` 只限制待处理的 schedule/stop 命令。
 
 到期时 Timer 只通过 `weak_ptr<ITimerSink>::tryPost(TimerEvent)` 交付值。EventLoop mailbox 或维护组件决定后续行为，Timer 不取得 Session、Redis connection、MysqlDao 或 FeatureStore 所有权。
 
-`FeatureStateMaintenance` 收到 `CleanupTick` 后向 maintenance pool 提交回收任务；已有回收在途时合并 tick。`BlacklistMaintenance` 收到 `BlacklistMaintenanceTick` 后也只提交任务；已有 round 时把任意数量 tick 合并为一个 pending bit，round 完成后立即补交一次。
+`FeatureStateMaintenance` 收到 `CleanupTick` 后向 maintenance pool 提交回收任务；已有回收在途时合并 tick。`BlacklistMaintenance` 收到 `BlacklistMaintenanceTick` 后也只提交任务；已有 round 时把任意数量 tick 合并为一个 pending bit，round 完成后立即补交一次。两个维护组件的 tick 重排遇到瞬时 Timer 拥塞时，当前 round 完成后会再尝试排下一轮，而不是因一次 QueueFull 进入永久停止状态。
 
 maintenance pool 固定为一条 worker。这样 FeatureStore 回收、Redis transaction、snapshot publish 和 MySQL transaction 有明确顺序，运行期 connection 不需要跨线程 mutex。
 
@@ -341,7 +341,7 @@ qps = decoded_responses / measurement_seconds
 
 OVERLOADED 和 TIMEOUT 是成功解析的服务响应，属于 decoded；失败分类完整区分 connect、connect timeout、send、read、peer closed、protocol、parse、attempt mismatch、request timeout 与 internal。P50/P95/P99/max 只统计已解码响应的端到端延迟。
 
-`scripts/pressure_test.sh` 从 smoke、steady、attack、churn、overload、deadline 中选择场景，每个选中场景运行至少三轮。每个 warmup/measurement 组合前只调用一次同步 reset；失败就不启动 benchmark。每轮生成新的 entity prefix 和 attack IP，避免 5/10 分钟 FeatureStore 状态跨轮复用。脚本在内存中保存摘要并打印中位数，不写 JSON/CSV 报告。`overload` 要求小于突发量的 business queue；`deadline` 要求 `DEADLINE_PORT` 上的专用服务使用 `server.business_timeout_ms=1`，两者不能在默认服务配置上被假定为必然通过。
+`scripts/pressure_test.sh` 从 smoke、steady、attack、churn、overload、deadline 中选择场景，每个选中场景运行至少三轮。每个 warmup/measurement 组合前只调用一次同步 reset；失败就不启动 benchmark。每轮生成新的 entity prefix 和 attack IP，避免 5/10 分钟 FeatureStore 状态跨轮复用。steady/attack 默认每连接 100 万次请求，不在计量阶段主动换连；churn 才单独使用小请求预算。benchmark 非零退出时先打印单行失败分类摘要。脚本在内存中保存摘要并打印中位数，不写 JSON/CSV 报告。`overload` 要求小于突发量的 business queue；`deadline` 要求 `DEADLINE_PORT` 上的专用服务使用 `server.business_timeout_ms=1`，两者不能在默认服务配置上被假定为必然通过。
 
 服务使用非默认配置时，`RESET_CONFIG` 必须指向同一配置，确保 clear 操作连接同一 Redis prefix 与 MySQL database：
 

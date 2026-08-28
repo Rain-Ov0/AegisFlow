@@ -58,11 +58,64 @@ void cancelledTimerIsNotDelivered() {
     require(timer.join() == TimerStatus::Ok, "Timer 重复停止与 join 不得死锁");
 }
 
+void cancellationDoesNotDependOnCommandCapacity() {
+    using aegisflow::timer::SteadyClock;
+    using aegisflow::timer::TimerCore;
+    using aegisflow::timer::TimerCoreConfig;
+    using aegisflow::timer::TimerEvent;
+    using aegisflow::timer::TimerEventKind;
+    using aegisflow::timer::TimerStatus;
+
+    TimerCore core;
+    TimerCoreConfig config;
+    config.command_capacity = 1;
+    config.timer_capacity = 1;
+    require(core.init(config) == TimerStatus::Ok, "TimerCore 必须初始化");
+
+    const auto sink = std::make_shared<RecordingTimerSink>();
+    TimerEvent event;
+    event.kind = TimerEventKind::CleanupTick;
+    const auto first = core.scheduleAt(
+        SteadyClock::now() + 1h,
+        sink,
+        event
+    );
+    require(first.status == TimerStatus::Ok, "首个 Timer 必须占满命令队列");
+    require(
+        core.cancel(first.id) == TimerStatus::Ok,
+        "取消不得因 schedule command 已占满队列而失败"
+    );
+    require(
+        core.processCommands().status == TimerStatus::Ok,
+        "已取消且未入堆的 schedule command 应可安全丢弃"
+    );
+
+    const auto second = core.scheduleAt(
+        SteadyClock::now() - 1ms,
+        sink,
+        event
+    );
+    require(
+        second.status == TimerStatus::Ok,
+        "取消后必须立即释放 timer capacity"
+    );
+    const auto ready = core.runReady();
+    require(
+        ready.status == TimerStatus::Ok && ready.timers_dispatched == 1 &&
+            sink->deliveries.load(std::memory_order_relaxed) == 1,
+        "新 Timer 应正常投递且旧 Timer 不得投递"
+    );
+}
+
 }  // namespace
 
 int main() {
     return aegisflow::test::runModule(
         "timer",
-        {{"取消与重复停止", cancelledTimerIsNotDelivered}}
+        {
+            {"取消与重复停止", cancelledTimerIsNotDelivered},
+            {"取消不依赖命令队列容量",
+             cancellationDoesNotDependOnCommandCapacity},
+        }
     );
 }

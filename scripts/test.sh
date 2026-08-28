@@ -18,6 +18,7 @@ readonly MODULE_TARGETS=(
     test_login_business_handler
     test_sliding_window
     test_feature_store
+    test_feature_state_maintenance
     test_benchmark_metrics
     test_async_logger
     test_mysql_blacklist

@@ -105,6 +105,17 @@ aegisflow_test_executable(test_feature_store
 )
 add_test(NAME test_feature_store COMMAND test_feature_store)
 
+aegisflow_test_executable(test_feature_state_maintenance
+    tests/app/feature_state_maintenance_test.cpp
+    src/app/feature_state_maintenance.cpp
+    src/feature/feature_store.cpp
+    src/runtime/bounded_worker_pool.cpp
+)
+add_test(
+    NAME test_feature_state_maintenance
+    COMMAND test_feature_state_maintenance
+)
+
 aegisflow_test_executable(test_benchmark_metrics
     tests/benchmark/benchmark_metrics_test.cpp
 )

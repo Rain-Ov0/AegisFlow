@@ -585,12 +585,26 @@ void barrierDrainsAllBatchesAndRetainsFailure() {
 
 class FakeTimerScheduler final : public aegisflow::timer::ITimerScheduler {
 public:
+    void setScheduleStatuses(
+        std::deque<aegisflow::timer::TimerStatus> statuses
+    ) {
+        std::lock_guard lock(mutex_);
+        schedule_statuses_ = std::move(statuses);
+    }
+
     aegisflow::timer::TimerScheduleResult scheduleAt(
         aegisflow::timer::SteadyTime,
         std::weak_ptr<aegisflow::timer::ITimerSink>,
         const aegisflow::timer::TimerEvent event
     ) noexcept override {
         std::lock_guard lock(mutex_);
+        const auto status = popOr(
+            schedule_statuses_, aegisflow::timer::TimerStatus::Ok);
+        if (status != aegisflow::timer::TimerStatus::Ok) {
+            aegisflow::timer::TimerScheduleResult result;
+            result.status = status;
+            return result;
+        }
         events_.push_back(event);
         const auto value = next_id_++;
         aegisflow::timer::TimerScheduleResult result;
@@ -618,9 +632,57 @@ public:
 
 private:
     mutable std::mutex mutex_;
+    std::deque<aegisflow::timer::TimerStatus> schedule_statuses_;
     std::vector<aegisflow::timer::TimerEvent> events_;
     std::uint64_t next_id_ = 1;
 };
+
+void transientTimerQueueFullDoesNotStopMaintenance() {
+    auto state = std::make_shared<FakeState>();
+    auto factory = std::make_shared<FakeFactory>(state);
+    aegisflow::app::BlacklistCandidateQueue queue(2);
+    aegisflow::risk::BlacklistManager manager;
+    aegisflow::runtime::BoundedWorkerPool business({1, 2});
+    aegisflow::runtime::BoundedWorkerPool maintenance_pool({1, 2});
+    FakeTimerScheduler scheduler;
+    scheduler.setScheduleStatuses({
+        aegisflow::timer::TimerStatus::Ok,
+        aegisflow::timer::TimerStatus::QueueFull,
+        aegisflow::timer::TimerStatus::Ok,
+    });
+    auto maintenance = aegisflow::app::BlacklistMaintenance::create(
+        config(), factory, queue, business, maintenance_pool, scheduler,
+        manager, 5, false);
+
+    require(maintenance->start() && scheduler.size() == 1,
+            "首个 maintenance tick 必须调度成功");
+    require(maintenance->tryPost(scheduler.event(0)),
+            "下一 tick 遇到 QueueFull 时仍应提交当前维护轮");
+    const auto limit = std::chrono::steady_clock::now() +
+                       std::chrono::seconds(1);
+    while ((maintenance->state().completed_rounds < 1 ||
+            scheduler.size() < 2) &&
+           std::chrono::steady_clock::now() < limit) {
+        std::this_thread::yield();
+    }
+    require(
+        maintenance->state().completed_rounds == 1 &&
+            scheduler.size() == 2,
+        "maintenance round 完成后必须从瞬时 QueueFull 恢复并补排 tick"
+    );
+
+    maintenance->stop();
+    maintenance_pool.close();
+    require(maintenance_pool.drainUntil(
+                std::chrono::steady_clock::now() + std::chrono::seconds(1)) ==
+                aegisflow::runtime::WorkerPoolStatus::Ok &&
+            maintenance_pool.join() ==
+                aegisflow::runtime::WorkerPoolStatus::Ok,
+            "QueueFull 恢复测试 maintenance pool 应停止");
+    business.close();
+    require(business.join() == aegisflow::runtime::WorkerPoolStatus::Ok,
+            "QueueFull 恢复测试 business pool 应停止");
+}
 
 void timerTicksNeverAccumulateWorkerTasks() {
     auto state = std::make_shared<FakeState>();
@@ -1154,6 +1216,8 @@ int main(const int argc, char** argv) {
          barrierDrainsAllBatchesAndRetainsFailure},
         {"timer ticks never accumulate worker tasks",
          timerTicksNeverAccumulateWorkerTasks},
+        {"transient timer queue full does not stop maintenance",
+         transientTimerQueueFullDoesNotStopMaintenance},
         {"deadline and stop exit before io", deadlineAndStopExitBeforeIo},
         {"stopped maintenance uses pool token for final drain",
          stoppedMaintenanceUsesPoolTokenForFinalDrain},

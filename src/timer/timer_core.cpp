@@ -148,23 +148,12 @@ TimerStatus TimerCore::cancel(const TimerId id) noexcept {
     if (reservation->second.generation != id.generation) {
         return TimerStatus::GenerationMismatch;
     }
-    if (reservation->second.cancelled) {
-        return TimerStatus::AlreadyCancelled;
-    }
-    if (commands_.size() >= config_->command_capacity) {
-        return TimerStatus::QueueFull;
-    }
-
-    try {
-        Command command;
-        command.kind = CommandKind::Cancel;
-        command.id = id;
-        commands_.push_back(std::move(command));
-    } catch (...) {
-        return TimerStatus::InternalError;
-    }
-
-    reservation->second.cancelled = true;
+    // cancel 本身已持有 core mutex，直接释放 reservation 即可。
+    // 堆中可能已存在的节点会因 reservation 缺失而惰性跳过；
+    // 尚未入堆的 schedule command 也会在消费时被跳过。
+    // 这使取消不再占用 command queue，也不会让已取消
+    // Timer 长时间占用 timer_capacity。
+    reservations_.erase(reservation);
     return TimerStatus::Ok;
 }
 
@@ -202,11 +191,18 @@ TimerCycleResult TimerCore::processCommands() noexcept {
     while (!commands_.empty()) {
         Command& command = commands_.front();
         if (command.kind == CommandKind::Schedule) {
-            try {
-                heap_.push(command.node);
-            } catch (...) {
-                result.status = TimerStatus::InternalError;
-                break;
+            const auto reservation = reservations_.find(command.id.value);
+            const bool still_active =
+                reservation != reservations_.end() &&
+                reservation->second.generation == command.id.generation &&
+                !reservation->second.cancelled;
+            if (still_active) {
+                try {
+                    heap_.push(command.node);
+                } catch (...) {
+                    result.status = TimerStatus::InternalError;
+                    break;
+                }
             }
         } else if (command.kind == CommandKind::Stop) {
             for (auto& [unused_id, reservation] : reservations_) {
